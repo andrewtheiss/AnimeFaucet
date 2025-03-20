@@ -3,7 +3,6 @@ import { ethers } from 'ethers';
 import { FAUCET_ABI, NETWORKS, WITHDRAWAL_MESSAGES } from '../constants/contracts';
 import animecoinIcon from '../assets/animecoin.png';
 import animeBackground from '../assets/anime.webp';
-import chiruVideo from '../assets/chiru-labs-beanzofficial.mp4';
 
 // Define constants to match contract
 const COOLDOWN_PERIOD = 450; // 7.5 minutes in seconds (match contract)
@@ -28,7 +27,6 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   const [updatingCooldown, setUpdatingCooldown] = useState(false);
   const [lastRecipient, setLastRecipient] = useState('');
   const [timerInitialized, setTimerInitialized] = useState(false);
-  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [lastTxHash, setLastTxHash] = useState('');
 
   const networkConfig = isDev ? NETWORKS.sepolia : NETWORKS.animechain;
@@ -424,11 +422,6 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           
           // Update user balance
           await updateUserBalance();
-          
-          // Set success modal flag after balance is updated
-          setTimeout(() => {
-            setShowSuccessModal(true);
-          }, 500);
         } catch (fetchError) {
           if (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('NetworkError')) {
             throw new Error(`Could not connect to server at ${serverUrl}. Server may be offline.`);
@@ -451,11 +444,6 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
         
         // Update user balance
         await updateUserBalance();
-        
-        // Set success modal flag after balance is updated
-        setTimeout(() => {
-          setShowSuccessModal(true);
-        }, 500);
       }
       
       await updateBalanceAndUserInfo();
@@ -512,62 +500,6 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
     } finally {
       setUpdatingCooldown(false);
     }
-  };
-
-  // Success Modal Component
-  const SuccessModal = () => {
-    const videoRef = useRef(null);
-    const [modalVisible, setModalVisible] = useState(false);
-    
-    useEffect(() => {
-      if (showSuccessModal) {
-        setModalVisible(true);
-        if (videoRef.current) {
-          videoRef.current.play();
-        }
-      } else {
-        setModalVisible(false);
-        if (videoRef.current) {
-          videoRef.current.pause();
-        }
-      }
-    }, [showSuccessModal]);
-    
-    const closeModal = () => {
-      setModalVisible(false);
-      setTimeout(() => {
-        setShowSuccessModal(false);
-      }, 300);
-    };
-    
-    // Always render the component, but control visibility with CSS
-    return (
-      <div className={`modal-overlay ${modalVisible ? 'visible' : 'hidden'}`} 
-           style={{ pointerEvents: modalVisible ? 'auto' : 'none' }}>
-        <div className={`success-modal ${modalVisible ? 'visible' : 'hidden'}`}>
-          <div className="modal-content">
-            <h2>Ikz! You got FREE Anime?! Now go build!</h2>
-            <div className="user-balance-update">
-              <p>Your balance: <span className="balance-highlight">{userBalance} {networkConfig.nativeCurrency.symbol}</span></p>
-            </div>
-            <div className="video-container">
-              <video ref={videoRef} loop muted className="chiru-video">
-                <source src={chiruVideo} type="video/mp4" />
-                Your browser does not support the video tag.
-              </video>
-            </div>
-            <div className="explorer-link">
-              <a href={explorerUrl} target="_blank" rel="noopener noreferrer">
-                View your wallet on {networkConfig.chainName} Explorer
-              </a>
-            </div>
-            <button onClick={closeModal} className="close-modal-button">
-              Close
-            </button>
-          </div>
-        </div>
-      </div>
-    );
   };
 
   return (
@@ -700,7 +632,6 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           )}
           {error && <p className="error">{error}</p>}
           {successMessage && <p className="success-message">{successMessage}</p>}
-          <SuccessModal />
         </div>
       )}
 
@@ -1061,139 +992,6 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           background-color: rgba(76, 209, 55, 0.1);
           border-radius: 6px;
           border-left: 3px solid #4cd137;
-        }
-        
-        /* Success Modal Styles */
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background-color: rgba(0, 0, 0, 0.85);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          z-index: 1000;
-          opacity: 0;
-          transition: opacity 0.3s ease;
-        }
-        
-        .modal-overlay.visible {
-          opacity: 1;
-        }
-        
-        .modal-overlay.hidden {
-          opacity: 0;
-          pointer-events: none; /* Prevents interaction when hidden */
-        }
-        
-        .success-modal {
-          background-color: #121212;
-          border-radius: 12px;
-          box-shadow: 0 0 30px rgba(108, 92, 231, 0.5);
-          width: 90%;
-          max-width: 500px;
-          overflow: hidden;
-          transform: scale(0.8);
-          transition: transform 0.3s ease;
-          border: 2px solid #6c5ce7;
-        }
-        
-        .success-modal.visible {
-          transform: scale(1);
-        }
-        
-        .success-modal.hidden {
-          transform: scale(0.8);
-        }
-        
-        @keyframes modalAppear {
-          from { 
-            opacity: 0;
-            transform: scale(0.8);
-          }
-          to { 
-            opacity: 1;
-            transform: scale(1);
-          }
-        }
-        
-        .modal-content {
-          padding: 25px;
-        }
-        
-        .success-modal h2 {
-          color: #6c5ce7;
-          text-align: center;
-          margin-top: 0;
-          font-size: 24px;
-        }
-        
-        .user-balance-update {
-          margin: 20px 0;
-          padding: 15px;
-          background-color: #1e1e1e;
-          border-radius: 8px;
-          text-align: center;
-        }
-        
-        .balance-highlight {
-          color: #4cd137;
-          font-size: 20px;
-          font-weight: bold;
-        }
-        
-        .video-container {
-          margin: 20px 0;
-          border-radius: 8px;
-          overflow: hidden;
-          height: 200px;
-        }
-        
-        .chiru-video {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-        }
-        
-        .explorer-link {
-          margin: 15px 0;
-          text-align: center;
-        }
-        
-        .explorer-link a {
-          color: #6c5ce7;
-          text-decoration: none;
-          padding: 8px 15px;
-          background-color: #1e1e1e;
-          border-radius: 20px;
-          display: inline-block;
-          transition: all 0.3s;
-        }
-        
-        .explorer-link a:hover {
-          background-color: #2d2d2d;
-          text-decoration: underline;
-        }
-        
-        .close-modal-button {
-          background-color: #6c5ce7;
-          color: white;
-          padding: 12px 30px;
-          border: none;
-          border-radius: 30px;
-          cursor: pointer;
-          font-size: 18px;
-          width: 100%;
-          font-weight: bold;
-          margin-top: 20px;
-          transition: all 0.3s;
-        }
-        
-        .close-modal-button:hover {
-          background-color: #5549c0;
-          transform: scale(1.03);
         }
       `}</style>
     </div>
