@@ -10,8 +10,8 @@ MAX_WITHDRAWALS: constant(uint256) = 3    # Maximum withdrawals per account
 GAS_RESERVE: constant(uint256) = 10000000000000000  # 0.01 token reserved for gas costs
 
 # Specific messages to sign for each withdrawal (in order)
-MESSAGE_1: constant(String[103]) = "Ill use this ANIME coin to build something on ANIME chain and not sell it like a degen."
-MESSAGE_2: constant(String[103]) = "Gonna build more with this ANIME coin, and not ape into a meme coin."
+MESSAGE_1: constant(String[103]) = "Ill use this ANIME coin to build something on ANIME chain.  Also, Earth domain is best."
+MESSAGE_2: constant(String[103]) = "Gonna build more with this ANIME coin and not sell it like a degen."
 MESSAGE_3: constant(String[103]) = "Gonna use this ANIME as my last hope for creating something worthwhile.  God help me."
 
 # EIP-712 domain constants

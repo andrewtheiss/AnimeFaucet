@@ -22,6 +22,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   const [withdrawalCount, setWithdrawalCount] = useState(0);
   const [expectedMessage, setExpectedMessage] = useState('');
   const [updatingCooldown, setUpdatingCooldown] = useState(false);
+  const [lastRecipient, setLastRecipient] = useState('');
 
   const networkConfig = isDev ? NETWORKS.sepolia : NETWORKS.animechain;
 
@@ -108,7 +109,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
       setAccount(accounts[0]);
       
       // After account is connected, immediately update user info
-      setTimeout(() => updateInfo(), 500); // Small delay to ensure account is set
+      setTimeout(() => updateInfo(accounts[0], contract), 500); // Small delay to ensure account is set
     } catch (err) {
       setError(err.message);
     } finally {
@@ -116,33 +117,49 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
     }
   };
 
-  const updateInfo = async () => {
-    if (!contract) return;
+  const updateInfo = async (currentAccount = null, currentContract = null) => {
+    // Use parameters if provided, otherwise fall back to state values
+    const contractToUse = currentContract || contract;
+    const accountToUse = currentAccount || account;
+    
+    if (!contractToUse) return;
     try {
       console.log("Updating faucet information...");
-      const balance = await contract.get_balance();
+      const balance = await contractToUse.get_balance();
       setBalance(ethers.formatEther(balance));
       
-      // Get the last withdrawal timestamp
-      const lastWithdrawalTime = await contract.last_global_withdrawal();
-      setLastWithdrawal(lastWithdrawalTime.toString());
+      // Only update cooldown data if we don't have an active cooldown timer
+      // or if the cooldown is already expired
+      if (Number(cooldown) <= 0) {
+        // Get the last withdrawal timestamp
+        const lastWithdrawalTime = await contractToUse.last_global_withdrawal();
+        setLastWithdrawal(lastWithdrawalTime.toString());
+        
+        // Calculate cooldown based on last withdrawal time
+        const calculatedCooldown = calculateCooldown();
+        setCooldown(calculatedCooldown);
+        
+        // Get the last recipient if we're checking cooldown
+        try {
+          const recipient = await contractToUse.last_recipient();
+          setLastRecipient(recipient);
+        } catch (recipientErr) {
+          console.error("Error getting last recipient:", recipientErr);
+        }
+      }
       
-      // Calculate cooldown based on last withdrawal time
-      const calculatedCooldown = calculateCooldown();
-      setCooldown(calculatedCooldown);
-      
-      if (account) {
-        console.log("Fetching data for account:", account);
-        const nonce = await contract.get_nonce(account);
+      if (accountToUse) {
+        console.log("Fetching data for account:", accountToUse);
+        const nonce = await contractToUse.get_nonce(accountToUse);
         setNonce(nonce.toString());
         console.log("Account nonce:", nonce.toString());
         
-        const count = await contract.get_withdrawal_count(account);
+        const count = await contractToUse.get_withdrawal_count(accountToUse);
         console.log("Account withdrawal count:", Number(count));
         setWithdrawalCount(Number(count));
         
         try {
-          const message = await contract.get_expected_message(account);
+          const message = await contractToUse.get_expected_message(accountToUse);
           console.log("Expected message from contract:", message);
           setExpectedMessage(message);
         } catch (msgErr) {
@@ -161,8 +178,8 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   };
 
   useEffect(() => {
-    const timer = setInterval(() => updateInfo(), 5000);
-    updateInfo();
+    const timer = setInterval(() => updateInfo(account, contract), 5000);
+    updateInfo(account, contract);
     return () => clearInterval(timer);
   }, [contract]);
 
@@ -183,7 +200,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   useEffect(() => {
     if (account && contract) {
       console.log("Account changed, fetching user data...");
-      updateInfo();
+      updateInfo(account, contract);
     }
   }, [account]);
 
@@ -297,7 +314,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
         console.log("Transaction confirmed!");
       }
       
-      await updateInfo();
+      await updateInfo(account, contract);
     } catch (err) {
       console.error("Withdrawal error:", err);
       setError(err.message || "Failed to withdraw. Check console for details.");
@@ -318,7 +335,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
       await tx.wait();
       setRefillAmount('');
       setShowRefill(false);
-      await updateInfo();
+      await updateInfo(account, contract);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -337,6 +354,14 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
         // Calculate cooldown based on last withdrawal time
         const calculatedCooldown = calculateCooldown();
         setCooldown(calculatedCooldown);
+        
+        // Get the last recipient when refreshing cooldown
+        try {
+          const recipient = await contract.last_recipient();
+          setLastRecipient(recipient);
+        } catch (recipientErr) {
+          console.error("Error getting last recipient:", recipientErr);
+        }
       }
     } catch (err) {
       console.error("Error updating cooldown:", err);
@@ -369,6 +394,11 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
                   <div className="cooldown-progress-bar" style={{ width: `${cooldownPercentage()}%` }}></div>
                 </div>
                 <p className="cooldown-warning">The faucet has a global cooldown - all users must wait until the timer completes.</p>
+                {lastRecipient && (
+                  <p className="last-recipient">
+                    Last recipient: <span className="address">{lastRecipient.substring(0, 6)}...{lastRecipient.substring(lastRecipient.length - 4)}</span>
+                  </p>
+                )}
                 <button 
                   onClick={refreshCooldown}
                   className="update-cooldown-button"
@@ -378,17 +408,24 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
                 </button>
               </>
             ) : (
-              <div className="cooldown-info-container">
-                <p className="cooldown-info">Global cooldown: {formatCooldown()}</p>
-                <button 
-                  onClick={refreshCooldown}
-                  className="refresh-cooldown-button"
-                  title="Refresh cooldown timer"
-                  disabled={updatingCooldown}
-                >
-                  {updatingCooldown ? '…' : '⟳'}
-                </button>
-              </div>
+              <>
+                <div className="cooldown-info-container">
+                  <p className="cooldown-info">Global cooldown: {formatCooldown()}</p>
+                  <button 
+                    onClick={refreshCooldown}
+                    className="refresh-cooldown-button"
+                    title="Refresh cooldown timer"
+                    disabled={updatingCooldown}
+                  >
+                    {updatingCooldown ? '…' : '⟳'}
+                  </button>
+                </div>
+                {lastRecipient && (
+                  <p className="last-recipient">
+                    Last recipient: <span className="address">{lastRecipient.substring(0, 6)}...{lastRecipient.substring(lastRecipient.length - 4)}</span>
+                  </p>
+                )}
+              </>
             )}
             <p className="withdrawal-count">
               Withdrawals completed: <span className="count">{withdrawalCount}</span> / 3

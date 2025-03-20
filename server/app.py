@@ -38,8 +38,8 @@ NETWORK_CONFIG = {
     'animechain': {
         'rpc_url': 'https://rpc-animechain-39xf6m45e3.t.conduit.xyz/',
         'chain_id': 69000,
-        'faucet_address': '0xYourAnimeChainFaucetAddress',
-        'backend_address': '0xYourAnimeChainBackendAddress'
+        'faucet_address': '0xD2D8cbbb093042EDFd47C78cC09C425ceBD3B19E',
+        'backend_address': '0x3aEF475d3FA57790DDEFe79dEBdC46f6A9A48c72'
     }
 }
 
