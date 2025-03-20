@@ -12,6 +12,12 @@ owner: public(address)
 def __init__():
     self.owner = msg.sender
 
+# Function to accept native currency payments
+@external
+@payable
+def deposit():
+    pass
+
 # Function to request a withdrawal from the faucet on behalf of a user
 @external
 def requestWithdrawal(_faucet: address, _user: address, _v: uint8, _r: bytes32, _s: bytes32, _message: String[103]):

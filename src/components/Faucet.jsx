@@ -260,6 +260,13 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Unknown server error' }));
+            
+            // Special handling for server funds error
+            if (errorData.error && errorData.error.includes('Server has insufficient funds')) {
+              console.error("Server insufficient funds:", errorData);
+              throw new Error('The server does not have enough ETH to pay for gas. Please contact the administrator.');
+            }
+            
             throw new Error(errorData.error || `Server returned status ${response.status}`);
           }
           
