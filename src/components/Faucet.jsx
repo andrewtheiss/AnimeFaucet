@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
 import { FAUCET_ABI, NETWORKS, WITHDRAWAL_MESSAGES } from '../constants/contracts';
 import animecoinIcon from '../assets/animecoin.png';
 import animeBackground from '../assets/anime.webp';
+import chiruVideo from '../assets/chiru-labs-beanzofficial.mp4';
 
 // Define constants to match contract
 const COOLDOWN_PERIOD = 450; // 7.5 minutes in seconds (match contract)
@@ -12,6 +13,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   const [provider, setProvider] = useState(null);
   const [contract, setContract] = useState(null);
   const [balance, setBalance] = useState('0');
+  const [userBalance, setUserBalance] = useState('0');
   const [cooldown, setCooldown] = useState('0');
   const [lastWithdrawal, setLastWithdrawal] = useState('0');
   const [loading, setLoading] = useState(false);
@@ -26,8 +28,13 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   const [updatingCooldown, setUpdatingCooldown] = useState(false);
   const [lastRecipient, setLastRecipient] = useState('');
   const [timerInitialized, setTimerInitialized] = useState(false);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
+  const [lastTxHash, setLastTxHash] = useState('');
 
   const networkConfig = isDev ? NETWORKS.sepolia : NETWORKS.animechain;
+  const explorerUrl = isDev 
+    ? `https://sepolia.etherscan.io/address/${account}` 
+    : `https://explorer-animechain-39xf6m45e3.t.conduit.xyz/address/${account}`;
 
   const formatCooldown = () => {
     const cooldownSeconds = Number(cooldown);
@@ -120,6 +127,16 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
     }
   };
 
+  const updateUserBalance = async () => {
+    if (!provider || !account) return;
+    try {
+      const balance = await provider.getBalance(account);
+      setUserBalance(ethers.formatEther(balance));
+    } catch (err) {
+      console.error('Error fetching user balance:', err);
+    }
+  };
+
   const updateInfo = async (currentAccount = null, currentContract = null) => {
     // Use parameters if provided, otherwise fall back to state values
     const contractToUse = currentContract || contract;
@@ -130,6 +147,11 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
       console.log("Updating faucet information...");
       const balance = await contractToUse.get_balance();
       setBalance(ethers.formatEther(balance));
+      
+      // Update user balance
+      if (accountToUse && provider) {
+        updateUserBalance();
+      }
       
       // Only update cooldown data if we don't have an active cooldown timer
       // or if the cooldown is already expired
@@ -204,12 +226,12 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
     if (!contract) return;
     
     try {
-      console.log("Updating faucet balance and user info...");
+      //console.log("Updating faucet balance and user info...");
       const balance = await contract.get_balance();
       setBalance(ethers.formatEther(balance));
       
       if (account) {
-        console.log("Fetching data for account:", account);
+       // console.log("Fetching data for account:", account);
         const nonce = await contract.get_nonce(account);
         setNonce(nonce.toString());
         
@@ -394,13 +416,19 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           }
           console.log("Server response:", result);
           console.log("Transaction hash:", result.tx_hash);
+          setLastTxHash(result.tx_hash);
           setSuccessMessage(`Server processed your request! Transaction: ${result.tx_hash.substring(0, 10)}...`);
           
           // Reset cooldown after successful withdrawal
           await resetCooldownAfterWithdrawal();
           
-          // Clear success message after 5 seconds
-          setTimeout(() => setSuccessMessage(''), 5000);
+          // Update user balance
+          await updateUserBalance();
+          
+          // Set success modal flag after balance is updated
+          setTimeout(() => {
+            setShowSuccessModal(true);
+          }, 500);
         } catch (fetchError) {
           if (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('NetworkError')) {
             throw new Error(`Could not connect to server at ${serverUrl}. Server may be offline.`);
@@ -414,11 +442,20 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
         console.log("Calling withdraw directly with signature and message...");
         const tx = await contractWithSigner.withdraw(sig.v, sig.r, sig.s, messageToSign);
         console.log("Transaction submitted:", tx.hash);
+        setLastTxHash(tx.hash);
         await tx.wait();
         console.log("Transaction confirmed!");
         
         // Reset cooldown after successful withdrawal
         await resetCooldownAfterWithdrawal();
+        
+        // Update user balance
+        await updateUserBalance();
+        
+        // Set success modal flag after balance is updated
+        setTimeout(() => {
+          setShowSuccessModal(true);
+        }, 500);
       }
       
       await updateBalanceAndUserInfo();
@@ -477,6 +514,62 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
     }
   };
 
+  // Success Modal Component
+  const SuccessModal = () => {
+    const videoRef = useRef(null);
+    const [modalVisible, setModalVisible] = useState(false);
+    
+    useEffect(() => {
+      if (showSuccessModal) {
+        setModalVisible(true);
+        if (videoRef.current) {
+          videoRef.current.play();
+        }
+      } else {
+        setModalVisible(false);
+        if (videoRef.current) {
+          videoRef.current.pause();
+        }
+      }
+    }, [showSuccessModal]);
+    
+    const closeModal = () => {
+      setModalVisible(false);
+      setTimeout(() => {
+        setShowSuccessModal(false);
+      }, 300);
+    };
+    
+    // Always render the component, but control visibility with CSS
+    return (
+      <div className={`modal-overlay ${modalVisible ? 'visible' : 'hidden'}`} 
+           style={{ pointerEvents: modalVisible ? 'auto' : 'none' }}>
+        <div className={`success-modal ${modalVisible ? 'visible' : 'hidden'}`}>
+          <div className="modal-content">
+            <h2>Ikz! You got FREE Anime?! Now go build!</h2>
+            <div className="user-balance-update">
+              <p>Your balance: <span className="balance-highlight">{userBalance} {networkConfig.nativeCurrency.symbol}</span></p>
+            </div>
+            <div className="video-container">
+              <video ref={videoRef} loop muted className="chiru-video">
+                <source src={chiruVideo} type="video/mp4" />
+                Your browser does not support the video tag.
+              </video>
+            </div>
+            <div className="explorer-link">
+              <a href={explorerUrl} target="_blank" rel="noopener noreferrer">
+                View your wallet on {networkConfig.chainName} Explorer
+              </a>
+            </div>
+            <button onClick={closeModal} className="close-modal-button">
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="faucet-container dark-theme">
       <div className="logo-container">
@@ -493,6 +586,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
               <span className="network-badge">{networkConfig.chainName}</span>
             </div>
             <p className="account-info">Connected Account: {account}</p>
+            <p className="user-balance">Your Balance: {userBalance} {networkConfig.nativeCurrency.symbol}</p>
             <p className="balance-info">Faucet Balance: {balance} {networkConfig.nativeCurrency.symbol}</p>
             
             {/* Always show the cooldown container regardless of cooldown value */}
@@ -527,6 +621,12 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
             <p className="withdrawal-count">
               Withdrawals completed: <span className="count">{withdrawalCount}</span> / 3
             </p>
+            
+            <div className="explorer-link-container">
+              <a href={explorerUrl} target="_blank" rel="noopener noreferrer" className="explorer-button">
+                View on {networkConfig.chainName} Explorer
+              </a>
+            </div>
           </div>
           {withdrawalCount < 3 && (
             <div className="messages-container">
@@ -547,18 +647,18 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
               )}
               <div className="current-message">
                 <div className="message-content">
-                  <p>{getDisplayMessage(withdrawalCount)}</p>
+                  <div className="message-highlight"><p><b>{getDisplayMessage(withdrawalCount)}</b></p></div>
                   {expectedMessage && expectedMessage !== WITHDRAWAL_MESSAGES[withdrawalCount] && (
                     <div className="expected-message">
                       <p><strong>Contract expects:</strong> {expectedMessage.replace("  Also, Earth domain is best.", "")}</p>
                     </div>
                   )}
-                  <div className="message-highlight">
-                    <span>Sign the following message to receive 0.1 Anime Coin:</span>
+                  <div>
+                    <p className="message-message">Sign the above message to receive 0.1 Anime Coin:</p>
                   </div>
                   {withdrawalCount === 0 && (
                     <div className="server-info">
-                      <p>📡 First withdrawal will use server API at {isDev ? 'localhost' : '45.33.62.126'}</p>
+                      <p>📡 First withdrawal will use server API at {isDev ? 'localhost' : 'faucet.animecoin.dev'} to pay for gas</p>
                     </div>
                   )}
                 </div>
@@ -600,6 +700,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           )}
           {error && <p className="error">{error}</p>}
           {successMessage && <p className="success-message">{successMessage}</p>}
+          <SuccessModal />
         </div>
       )}
 
@@ -683,14 +784,39 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           font-weight: bold;
         }
         
-        .account-info, .balance-info, .cooldown-info, .last-recipient, .withdrawal-count {
+        .account-info, .balance-info, .cooldown-info, .last-recipient, .withdrawal-count, .user-balance {
           margin: 8px 0;
           font-size: 14px;
+        }
+        
+        .user-balance {
+          color: #4cd137;
+          font-weight: bold;
         }
         
         .address, .count {
           color: #6c5ce7;
           font-weight: bold;
+        }
+        
+        .explorer-link-container {
+          margin-top: 15px;
+        }
+        
+        .explorer-button {
+          display: inline-block;
+          padding: 6px 12px;
+          background-color: #2d2d2d;
+          color: #6c5ce7;
+          text-decoration: none;
+          border-radius: 4px;
+          font-size: 14px;
+          transition: all 0.3s;
+        }
+        
+        .explorer-button:hover {
+          background-color: #3d3d3d;
+          text-decoration: underline;
         }
         
         .cooldown-info-container {
@@ -843,6 +969,11 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           text-align: center;
         }
         
+        .message-message {
+          text-align: center;
+          margin: 0px auto;
+        }
+          
         .message-highlight span {
           font-weight: bold;
         }
@@ -930,6 +1061,139 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           background-color: rgba(76, 209, 55, 0.1);
           border-radius: 6px;
           border-left: 3px solid #4cd137;
+        }
+        
+        /* Success Modal Styles */
+        .modal-overlay {
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: rgba(0, 0, 0, 0.85);
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          z-index: 1000;
+          opacity: 0;
+          transition: opacity 0.3s ease;
+        }
+        
+        .modal-overlay.visible {
+          opacity: 1;
+        }
+        
+        .modal-overlay.hidden {
+          opacity: 0;
+          pointer-events: none; /* Prevents interaction when hidden */
+        }
+        
+        .success-modal {
+          background-color: #121212;
+          border-radius: 12px;
+          box-shadow: 0 0 30px rgba(108, 92, 231, 0.5);
+          width: 90%;
+          max-width: 500px;
+          overflow: hidden;
+          transform: scale(0.8);
+          transition: transform 0.3s ease;
+          border: 2px solid #6c5ce7;
+        }
+        
+        .success-modal.visible {
+          transform: scale(1);
+        }
+        
+        .success-modal.hidden {
+          transform: scale(0.8);
+        }
+        
+        @keyframes modalAppear {
+          from { 
+            opacity: 0;
+            transform: scale(0.8);
+          }
+          to { 
+            opacity: 1;
+            transform: scale(1);
+          }
+        }
+        
+        .modal-content {
+          padding: 25px;
+        }
+        
+        .success-modal h2 {
+          color: #6c5ce7;
+          text-align: center;
+          margin-top: 0;
+          font-size: 24px;
+        }
+        
+        .user-balance-update {
+          margin: 20px 0;
+          padding: 15px;
+          background-color: #1e1e1e;
+          border-radius: 8px;
+          text-align: center;
+        }
+        
+        .balance-highlight {
+          color: #4cd137;
+          font-size: 20px;
+          font-weight: bold;
+        }
+        
+        .video-container {
+          margin: 20px 0;
+          border-radius: 8px;
+          overflow: hidden;
+          height: 200px;
+        }
+        
+        .chiru-video {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+        
+        .explorer-link {
+          margin: 15px 0;
+          text-align: center;
+        }
+        
+        .explorer-link a {
+          color: #6c5ce7;
+          text-decoration: none;
+          padding: 8px 15px;
+          background-color: #1e1e1e;
+          border-radius: 20px;
+          display: inline-block;
+          transition: all 0.3s;
+        }
+        
+        .explorer-link a:hover {
+          background-color: #2d2d2d;
+          text-decoration: underline;
+        }
+        
+        .close-modal-button {
+          background-color: #6c5ce7;
+          color: white;
+          padding: 12px 30px;
+          border: none;
+          border-radius: 30px;
+          cursor: pointer;
+          font-size: 18px;
+          width: 100%;
+          font-weight: bold;
+          margin-top: 20px;
+          transition: all 0.3s;
+        }
+        
+        .close-modal-button:hover {
+          background-color: #5549c0;
+          transform: scale(1.03);
         }
       `}</style>
     </div>

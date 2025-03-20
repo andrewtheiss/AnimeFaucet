@@ -15,7 +15,7 @@ function App() {
 
   return (
     <>
-      <h1>AnimeChain Faucet</h1>
+      <h1>AnimeChain L3 Faucet</h1>
       <Faucet 
         contractAddress={CONTRACT_ADDRESS} 
         isDev={false} 
