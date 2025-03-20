@@ -40,3 +40,331 @@
 .read-the-docs {
   color: #888;
 }
+
+.faucet-container {
+  margin: 2rem auto;
+  padding: 2rem;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  max-width: 600px;
+}
+
+.faucet-container button {
+  background-color: #646cff;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+
+.faucet-container button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error {
+  color: #ff4444;
+  margin-top: 1rem;
+}
+
+.connect-button {
+  background-color: #646cff !important;
+  width: 100%;
+  margin-bottom: 1rem;
+  font-size: 1.2em !important;
+}
+
+.connect-button:hover {
+  background-color: #535bf2 !important;
+}
+
+.dev-banner {
+  background-color: #ff6b6b;
+  color: white;
+  padding: 0.5rem;
+  margin-bottom: 1rem;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+.network-toggle {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+}
+
+.toggle-button {
+  background-color: #646cff;
+  color: white;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  border-radius: 8px;
+  font-size: 0.9em;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.25s;
+}
+
+.toggle-button:hover {
+  background-color: #535bf2;
+  transform: translateY(-2px);
+}
+
+.toggle-button.dev-mode {
+  background-color: #ff6b6b;
+}
+
+.toggle-button.dev-mode:hover {
+  background-color: #ff5252;
+}
+
+.actions-container {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.action-button {
+  width: 100%;
+}
+
+.refill-toggle-button {
+  background-color: #4CAF50 !important;
+  width: 100%;
+}
+
+.refill-toggle-button:hover {
+  background-color: #45a049 !important;
+}
+
+.refill-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 1rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+}
+
+.refill-input {
+  padding: 0.6em 1.2em;
+  border-radius: 8px;
+  border: 1px solid #646cff;
+  background: transparent;
+  color: inherit;
+  font-size: 1em;
+  font-family: inherit;
+}
+
+.refill-input:focus {
+  outline: none;
+  border-color: #535bf2;
+}
+
+.refill-button {
+  background-color: #4CAF50 !important;
+}
+
+.refill-button:hover {
+  background-color: #45a049 !important;
+}
+
+.refill-button:disabled {
+  background-color: #cccccc !important;
+  cursor: not-allowed;
+}
+
+.info-container {
+  background: rgba(100, 108, 255, 0.08);
+  padding: 1.5rem;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+  border: 1px solid rgba(100, 108, 255, 0.2);
+}
+
+.network-info {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 1rem;
+}
+
+.network-badge {
+  background-color: #646cff;
+  color: white;
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.info-container p {
+  margin: 0.5rem 0;
+  font-size: 0.95rem;
+}
+
+.cooldown-warning {
+  color: #ff6b6b;
+  font-weight: 600;
+  padding: 0.5rem;
+  margin-top: 0.5rem !important;
+  background: rgba(255, 107, 107, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.withdrawal-count {
+  font-size: 1.1rem !important;
+  font-weight: 600;
+  color: #646cff;
+}
+
+.withdrawal-count .count {
+  background: #646cff;
+  color: white;
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  margin: 0 0.3rem;
+}
+
+.messages-container {
+  margin: 2rem 0;
+}
+
+.messages-container h3 {
+  color: #646cff;
+  margin-bottom: 0.5rem;
+  font-size: 1.3rem;
+}
+
+.signature-info {
+  color: #888;
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.message-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.progress-step {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  position: relative;
+}
+
+.progress-step.current {
+  background-color: #646cff;
+  box-shadow: 0 0 10px rgba(100, 108, 255, 0.5);
+  transform: scale(1.1);
+}
+
+.progress-step.completed {
+  background-color: #4CAF50;
+}
+
+.progress-line {
+  flex: 1;
+  height: 2px;
+  background-color: rgba(255, 255, 255, 0.2);
+  max-width: 50px;
+}
+
+.current-message {
+  padding: 1.5rem;
+  background: rgba(100, 108, 255, 0.1);
+  border: 1px solid #646cff;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 20px rgba(100, 108, 255, 0.2);
+}
+
+.message-content {
+  text-align: left;
+}
+
+.message-content p {
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.4;
+  color: #fff;
+}
+
+.expected-message {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(255, 107, 107, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.expected-message p {
+  font-size: 0.9rem !important;
+  color: #ff6b6b !important;
+}
+
+.message-highlight {
+  margin-top: 1rem;
+  color: #646cff;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+  0% {
+    opacity: 0.6;
+  }
+  50% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.6;
+  }
+}
+
+.completed .message-number {
+  background: #45a049;
+}
+
+.completed .message-content {
+  text-decoration: line-through;
+  text-decoration-color: rgba(255, 255, 255, 0.3);
+}
+
+.cooldown-info {
+  font-weight: 600;
+  color: #646cff;
+}
+
+.cooldown-progress-container {
+  height: 8px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  margin: 0.5rem 0;
+  overflow: hidden;
+}
+
+.cooldown-progress-bar {
+  height: 100%;
+  background-color: #4CAF50;
+  border-radius: 4px;
+  transition: width 1s ease;
+}
