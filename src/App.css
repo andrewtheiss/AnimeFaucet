@@ -42,6 +42,29 @@
   margin-top: 1rem;
 }
 
+.disclaimer-box {
+  background-color: rgba(255, 193, 7, 0.15);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  text-align: left;
+}
+
+.disclaimer-box h3 {
+  color: #ffc107;
+  margin-top: 0;
+  margin-bottom: 0.75rem;
+  font-size: 1.2rem;
+}
+
+.disclaimer-box p {
+  color: #e6e6e6;
+  margin: 0.5rem 0;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
 .faucet-container {
   margin: 2rem auto;
   padding: 2rem;
@@ -414,6 +437,35 @@
   margin-top: 1rem;
 }
 
+.cooldown-container {
+  min-height: 150px; /* Set a minimum height to prevent layout shift */
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+}
+
+.cooldown-details {
+  transition: opacity 0.3s ease, max-height 0.3s ease;
+  overflow: hidden;
+}
+
+.cooldown-details.visible {
+  opacity: 1;
+  max-height: 200px;
+}
+
+.cooldown-details.hidden {
+  opacity: 0;
+  max-height: 0;
+  pointer-events: none;
+}
+
+.refresh-cooldown-button.hidden {
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
 .footer-refill-button {
   background-color: rgba(255, 255, 255, 0.1) !important;
   color: #888;
@@ -436,4 +488,76 @@
 
 .cooldown-info-container.no-refresh .cooldown-info {
   margin: 0;
+}
+
+.cooldown-metrics {
+  background: rgba(100, 108, 255, 0.06);
+  border-radius: 8px;
+  padding: 12px;
+  margin: 12px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px dashed rgba(100, 108, 255, 0.2);
+}
+
+.cooldown-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.9rem;
+}
+
+.metric-label {
+  color: #aaa;
+  font-weight: 500;
+}
+
+.metric-value {
+  color: #fff;
+  font-weight: 600;
+  background: rgba(100, 108, 255, 0.1);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.withdrawer-address {
+  font-family: monospace;
+  font-size: 0.85rem;
+}
+
+.gasless-info {
+  background-color: rgba(76, 175, 80, 0.15);
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  border-radius: 8px;
+  padding: 0.75rem;
+  margin: 1rem 0;
+  font-weight: 500;
+}
+
+.gasless-info p {
+  color: #4CAF50 !important;
+  margin: 0 !important;
+  font-size: 0.9rem !important;
+}
+
+.gasless-highlight {
+  display: inline-block;
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 4px;
+  background-color: rgba(76, 175, 80, 0.25);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.gasless-debug-tip {
+  margin-top: 8px !important;
+  font-size: 0.8rem !important;
+  opacity: 0.9;
+  color: #2a6a2c !important;
+  background: rgba(76, 175, 80, 0.1);
+  padding: 5px 8px;
+  border-radius: 4px;
+  border-left: 3px solid #4CAF50;
 }
