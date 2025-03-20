@@ -211,6 +211,16 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
     }
   }, [account, onConnectionUpdate]);
 
+  // Create display messages that hide certain text for UI
+  const getDisplayMessage = (index) => {
+    // For the first message, hide the "Earth domain is best" part in the UI
+    if (index === 0) {
+      return "I'll use this ANIME coin to build something on ANIME chain.";
+    }
+    // For other messages, use the original text
+    return WITHDRAWAL_MESSAGES[index];
+  };
+
   const handleWithdraw = async () => {
     try {
       setLoading(true);
@@ -255,7 +265,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
       // For first withdrawal (withdrawalCount == 0), use server API
       if (withdrawalCount === 0) {
         // Determine server URL based on current network
-        const serverUrl = isDev ? 'http://localhost:5000' : 'http://45.33.62.126:5000';
+        const serverUrl = isDev ? 'http://localhost:5000' : 'http://localhost:5000' ; //'http://45.33.62.126:5000';
         console.log(`Using server at ${serverUrl} for first withdrawal`);
         
         try {
@@ -450,10 +460,10 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
               )}
               <div className="current-message">
                 <div className="message-content">
-                  <p>{WITHDRAWAL_MESSAGES[withdrawalCount]}</p>
+                  <p>{getDisplayMessage(withdrawalCount)}</p>
                   {expectedMessage && expectedMessage !== WITHDRAWAL_MESSAGES[withdrawalCount] && (
                     <div className="expected-message">
-                      <p><strong>Contract expects:</strong> {expectedMessage}</p>
+                      <p><strong>Contract expects:</strong> {expectedMessage.replace("  Also, Earth domain is best.", "")}</p>
                     </div>
                   )}
                   <div className="message-highlight">

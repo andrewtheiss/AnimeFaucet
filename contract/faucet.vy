@@ -22,6 +22,7 @@ MESSAGE_TYPEHASH: constant(bytes32) = keccak256("FaucetRequest(address recipient
 owner: public(address)                            # Owner of the contract
 authorizedBackends: public(HashMap[address, bool]) # Whitelist of authorized backend contracts
 last_global_withdrawal: public(uint256)           # Tracks the last withdrawal time globally
+last_recipient: public(address)                   # Tracks the address of the last recipient
 nonce: public(HashMap[address, uint256])          # Nonce to prevent replay attacks
 withdrawal_count: public(HashMap[address, uint256]) # Tracks number of withdrawals per user
 
@@ -121,6 +122,7 @@ def withdraw(_v: uint8, _r: bytes32, _s: bytes32, _message: String[103]):
     # Update withdrawal count and global withdrawal time
     self.withdrawal_count[msg.sender] = current_count + 1
     self.last_global_withdrawal = current_time
+    self.last_recipient = msg.sender  # Store the last recipient address
 
     # Send the native token
     send(msg.sender, WITHDRAW_AMOUNT)
@@ -189,6 +191,7 @@ def withdrawFor(_user: address, _v: uint8, _r: bytes32, _s: bytes32, _message: S
     # Update withdrawal count and global withdrawal time
     self.withdrawal_count[_user] = 1
     self.last_global_withdrawal = current_time
+    self.last_recipient = _user  # Store the last recipient address
 
     # Send the native token to the user
     send(_user, WITHDRAW_AMOUNT)

@@ -4,7 +4,7 @@ import Faucet from './components/Faucet'
 
 // Contract addresses for different networks
 const CONTRACTS = {
-  animechain: "0xD2D8cbbb093042EDFd47C78cC09C425ceBD3B19E", // Deployed Faucet with global cooldown on AnimeChain
+  animechain: "0x81AC57b126940a1F946Aed67e5C0F0351d607eAb", // Deployed Faucet with global cooldown on AnimeChain
   sepolia: "0x6792e2DeA462E744E28D04d701F6C7505009ea1c"    // Test Faucet on Sepolia testnet
 };
 
