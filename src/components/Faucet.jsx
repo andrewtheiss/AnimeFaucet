@@ -5,12 +5,13 @@ import { FAUCET_ABI, NETWORKS, WITHDRAWAL_MESSAGES } from '../constants/contract
 // Define constants to match contract
 const COOLDOWN_PERIOD = 450; // 7.5 minutes in seconds (match contract)
 
-function Faucet({ contractAddress, isDev = false }) {
+function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   const [account, setAccount] = useState(null);
   const [provider, setProvider] = useState(null);
   const [contract, setContract] = useState(null);
   const [balance, setBalance] = useState('0');
   const [cooldown, setCooldown] = useState('0');
+  const [lastWithdrawal, setLastWithdrawal] = useState('0');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [nonce, setNonce] = useState('0');
@@ -18,6 +19,7 @@ function Faucet({ contractAddress, isDev = false }) {
   const [refillAmount, setRefillAmount] = useState('');
   const [withdrawalCount, setWithdrawalCount] = useState(0);
   const [expectedMessage, setExpectedMessage] = useState('');
+  const [updatingCooldown, setUpdatingCooldown] = useState(false);
 
   const networkConfig = isDev ? NETWORKS.sepolia : NETWORKS.animechain;
 
@@ -28,6 +30,18 @@ function Faucet({ contractAddress, isDev = false }) {
     const minutes = Math.floor(cooldownSeconds / 60);
     const seconds = cooldownSeconds % 60;
     return `${minutes} minute${minutes !== 1 ? 's' : ''} ${seconds} second${seconds !== 1 ? 's' : ''}`;
+  };
+
+  const calculateCooldown = () => {
+    // If no prior withdrawal, cooldown is 0
+    if (lastWithdrawal === '0') return '0';
+    
+    const lastWithdrawalTime = Number(lastWithdrawal);
+    const nextAvailableTime = lastWithdrawalTime + COOLDOWN_PERIOD;
+    const currentTime = Math.floor(Date.now() / 1000); // Current time in seconds
+    
+    if (currentTime >= nextAvailableTime) return '0';
+    return (nextAvailableTime - currentTime).toString();
   };
 
   const cooldownPercentage = () => {
@@ -43,6 +57,18 @@ function Faucet({ contractAddress, isDev = false }) {
         setProvider(provider);
         const contract = new ethers.Contract(contractAddress, FAUCET_ABI, provider);
         setContract(contract);
+        
+        // Check if user is already connected
+        try {
+          const accounts = await provider.listAccounts();
+          if (accounts && accounts.length > 0) {
+            console.log("Found existing connected account:", accounts[0].address);
+            setAccount(accounts[0].address);
+          }
+        } catch (error) {
+          console.error("Error checking for existing accounts:", error);
+        }
+        
         window.ethereum.on('accountsChanged', (accounts) => setAccount(accounts[0] || null));
         window.ethereum.on('chainChanged', () => window.location.reload());
       }
@@ -78,6 +104,9 @@ function Faucet({ contractAddress, isDev = false }) {
       }
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       setAccount(accounts[0]);
+      
+      // After account is connected, immediately update user info
+      setTimeout(() => updateInfo(), 500); // Small delay to ensure account is set
     } catch (err) {
       setError(err.message);
     } finally {
@@ -88,14 +117,26 @@ function Faucet({ contractAddress, isDev = false }) {
   const updateInfo = async () => {
     if (!contract) return;
     try {
+      console.log("Updating faucet information...");
       const balance = await contract.get_balance();
       setBalance(ethers.formatEther(balance));
-      const cooldown = await contract.time_until_next_withdrawal();
-      setCooldown(cooldown.toString());
+      
+      // Get the last withdrawal timestamp
+      const lastWithdrawalTime = await contract.last_global_withdrawal();
+      setLastWithdrawal(lastWithdrawalTime.toString());
+      
+      // Calculate cooldown based on last withdrawal time
+      const calculatedCooldown = calculateCooldown();
+      setCooldown(calculatedCooldown);
+      
       if (account) {
+        console.log("Fetching data for account:", account);
         const nonce = await contract.get_nonce(account);
         setNonce(nonce.toString());
+        console.log("Account nonce:", nonce.toString());
+        
         const count = await contract.get_withdrawal_count(account);
+        console.log("Account withdrawal count:", Number(count));
         setWithdrawalCount(Number(count));
         
         try {
@@ -109,6 +150,8 @@ function Faucet({ contractAddress, isDev = false }) {
           console.log("Using fallback message:", fallbackMessage);
           setExpectedMessage(fallbackMessage);
         }
+      } else {
+        console.log("No account connected, skipping user-specific data");
       }
     } catch (err) {
       console.error('Error updating info:', err);
@@ -120,6 +163,34 @@ function Faucet({ contractAddress, isDev = false }) {
     updateInfo();
     return () => clearInterval(timer);
   }, [contract]);
+
+  // Update cooldown time every second based on last withdrawal time
+  useEffect(() => {
+    const updateCooldownTimer = () => {
+      if (lastWithdrawal !== '0') {
+        const calculatedCooldown = calculateCooldown();
+        setCooldown(calculatedCooldown);
+      }
+    };
+    
+    const timer = setInterval(updateCooldownTimer, 1000);
+    return () => clearInterval(timer);
+  }, [lastWithdrawal]);
+
+  // Update user information when account changes
+  useEffect(() => {
+    if (account && contract) {
+      console.log("Account changed, fetching user data...");
+      updateInfo();
+    }
+  }, [account]);
+
+  // Update the onConnectionUpdate prop whenever account changes
+  useEffect(() => {
+    if (onConnectionUpdate) {
+      onConnectionUpdate(!!account);
+    }
+  }, [account, onConnectionUpdate]);
 
   const handleWithdraw = async () => {
     try {
@@ -195,6 +266,25 @@ function Faucet({ contractAddress, isDev = false }) {
     }
   };
 
+  const refreshCooldown = async () => {
+    try {
+      if (contract) {
+        setUpdatingCooldown(true);
+        // Get the last withdrawal timestamp
+        const lastWithdrawalTime = await contract.last_global_withdrawal();
+        setLastWithdrawal(lastWithdrawalTime.toString());
+        
+        // Calculate cooldown based on last withdrawal time
+        const calculatedCooldown = calculateCooldown();
+        setCooldown(calculatedCooldown);
+      }
+    } catch (err) {
+      console.error("Error updating cooldown:", err);
+    } finally {
+      setUpdatingCooldown(false);
+    }
+  };
+
   return (
     <div className="faucet-container">
       {isDev && <div className="dev-banner">Development Mode - Using Sepolia Testnet</div>}
@@ -210,14 +300,35 @@ function Faucet({ contractAddress, isDev = false }) {
             </div>
             <p className="account-info">Connected Account: {account}</p>
             <p className="balance-info">Faucet Balance: {balance} {networkConfig.nativeCurrency.symbol}</p>
-            <p className="cooldown-info">Global cooldown: {formatCooldown()}</p>
-            {Number(cooldown) > 0 && (
+            {Number(cooldown) > 0 ? (
               <>
+                <div className="cooldown-info-container no-refresh">
+                  <p className="cooldown-info">Global cooldown: {formatCooldown()}</p>
+                </div>
                 <div className="cooldown-progress-container">
                   <div className="cooldown-progress-bar" style={{ width: `${cooldownPercentage()}%` }}></div>
                 </div>
                 <p className="cooldown-warning">The faucet has a global cooldown - all users must wait until the timer completes.</p>
+                <button 
+                  onClick={refreshCooldown}
+                  className="update-cooldown-button"
+                  disabled={updatingCooldown}
+                >
+                  {updatingCooldown ? 'Updating...' : 'Update Cooldown Timer'}
+                </button>
               </>
+            ) : (
+              <div className="cooldown-info-container">
+                <p className="cooldown-info">Global cooldown: {formatCooldown()}</p>
+                <button 
+                  onClick={refreshCooldown}
+                  className="refresh-cooldown-button"
+                  title="Refresh cooldown timer"
+                  disabled={updatingCooldown}
+                >
+                  {updatingCooldown ? '…' : '⟳'}
+                </button>
+              </div>
             )}
             <p className="withdrawal-count">
               Withdrawals completed: <span className="count">{withdrawalCount}</span> / 3
@@ -260,7 +371,7 @@ function Faucet({ contractAddress, isDev = false }) {
                 Number(cooldown) > 0 ? `Faucet available in ${formatCooldown()}` :
                 `Sign & Request 0.1 ${networkConfig.nativeCurrency.symbol} Tokens`}
             </button>
-            <button onClick={() => setShowRefill(!showRefill)} className="refill-toggle-button">
+            <button onClick={() => setShowRefill(!showRefill)} className="refill-toggle-button" style={{ display: 'none' }}>
               {showRefill ? '↑ Hide Refill' : '↓ Show Refill'}
             </button>
           </div>

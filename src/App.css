@@ -39,6 +39,7 @@
 
 .read-the-docs {
   color: #888;
+  margin-top: 1rem;
 }
 
 .faucet-container {
@@ -218,6 +219,19 @@
   border: 1px solid rgba(255, 107, 107, 0.3);
 }
 
+.update-cooldown-button {
+  margin-top: 0.75rem !important;
+  background-color: #646cff !important;
+  width: 100%;
+  font-size: 0.9rem !important;
+  transition: all 0.2s ease;
+}
+
+.update-cooldown-button:hover {
+  background-color: #535bf2 !important;
+  transform: translateY(-2px);
+}
+
 .withdrawal-count {
   font-size: 1.1rem !important;
   font-weight: 600;
@@ -354,6 +368,33 @@
   color: #646cff;
 }
 
+.cooldown-info-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.refresh-cooldown-button {
+  background-color: transparent !important;
+  color: #646cff;
+  border: 1px solid #646cff !important;
+  border-radius: 50% !important;
+  width: 28px !important;
+  height: 28px !important;
+  padding: 0 !important;
+  font-size: 1rem !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease !important;
+}
+
+.refresh-cooldown-button:hover {
+  background-color: rgba(100, 108, 255, 0.1) !important;
+  transform: rotate(180deg);
+}
+
 .cooldown-progress-container {
   height: 8px;
   background-color: rgba(255, 255, 255, 0.1);
@@ -367,4 +408,32 @@
   background-color: #4CAF50;
   border-radius: 4px;
   transition: width 1s ease;
+}
+
+.refill-footer {
+  margin-top: 1rem;
+}
+
+.footer-refill-button {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  color: #888;
+  border: 1px solid #444 !important;
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.footer-refill-button:hover {
+  background-color: rgba(255, 255, 255, 0.2) !important;
+  color: #fff;
+  transform: translateY(-2px);
+}
+
+.cooldown-info-container.no-refresh {
+  justify-content: center;
+}
+
+.cooldown-info-container.no-refresh .cooldown-info {
+  margin: 0;
 }

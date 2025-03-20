@@ -17,6 +17,8 @@ function App() {
     }
     return import.meta.env.VITE_NETWORK === 'sepolia';
   });
+  
+  const [isConnected, setIsConnected] = useState(false);
 
   const contractAddress = isDev ? CONTRACTS.sepolia : CONTRACTS.animechain;
 
@@ -26,6 +28,11 @@ function App() {
     localStorage.setItem('networkMode', newMode ? 'sepolia' : 'animechain');
     // Reload the page to ensure clean network switch
     window.location.reload();
+  };
+  
+  // Function for the Faucet component to call when wallet connection status changes
+  const updateConnectionStatus = (connected) => {
+    setIsConnected(connected);
   };
 
   return (
@@ -39,10 +46,25 @@ function App() {
         </button>
       </div>
       <h1>{isDev ? 'Sepolia' : 'AnimeChain'} Faucet</h1>
-      <Faucet contractAddress={contractAddress} isDev={isDev} />
-      <p className="read-the-docs">
-        Connect your wallet to request {isDev ? 'Sepolia' : 'ANIME'} tokens
-      </p>
+      <Faucet 
+        contractAddress={contractAddress} 
+        isDev={isDev} 
+        onConnectionUpdate={updateConnectionStatus}
+      />
+      {!isConnected ? (
+        <p className="read-the-docs">
+          Connect your wallet to request {isDev ? 'Sepolia' : 'ANIME'} tokens
+        </p>
+      ) : (
+        <div className="refill-footer">
+          <button 
+            onClick={() => document.querySelector('.refill-toggle-button')?.click()} 
+            className="footer-refill-button"
+          >
+            🔄 Refill Faucet
+          </button>
+        </div>
+      )}
     </>
   )
 }
