@@ -13,7 +13,9 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   const [cooldown, setCooldown] = useState('0');
   const [lastWithdrawal, setLastWithdrawal] = useState('0');
   const [loading, setLoading] = useState(false);
+  const [serverLoading, setServerLoading] = useState(false);
   const [error, setError] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
   const [nonce, setNonce] = useState('0');
   const [showRefill, setShowRefill] = useState(false);
   const [refillAmount, setRefillAmount] = useState('');
@@ -232,11 +234,62 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
       const signature = await signer.signTypedData(domain, types, message);
       console.log("Signature obtained:", signature);
       const sig = ethers.Signature.from(signature);
-      console.log("Calling withdraw with signature and message...");
-      const tx = await contractWithSigner.withdraw(sig.v, sig.r, sig.s, messageToSign);
-      console.log("Transaction submitted:", tx.hash);
-      await tx.wait();
-      console.log("Transaction confirmed!");
+      
+      // For first withdrawal (withdrawalCount == 0), use server API
+      if (withdrawalCount === 0) {
+        // Determine server URL based on current network
+        const serverUrl = isDev ? 'http://localhost:5000' : 'http://45.33.62.126:5000';
+        console.log(`Using server at ${serverUrl} for first withdrawal`);
+        
+        try {
+          setServerLoading(true);
+          const response = await fetch(`${serverUrl}/request-withdrawal`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              network: isDev ? 'sepolia' : 'animechain',
+              user_address: account,
+              v: sig.v,
+              r: sig.r,
+              s: sig.s,
+              message: messageToSign
+            })
+          });
+          
+          if (!response.ok) {
+            const errorData = await response.json().catch(() => ({ error: 'Unknown server error' }));
+            throw new Error(errorData.error || `Server returned status ${response.status}`);
+          }
+          
+          const result = await response.json();
+          if (result.error) {
+            throw new Error(result.error);
+          }
+          console.log("Server response:", result);
+          console.log("Transaction hash:", result.tx_hash);
+          setSuccessMessage(`Server processed your request! Transaction: ${result.tx_hash.substring(0, 10)}...`);
+          
+          // Clear success message after 5 seconds
+          setTimeout(() => setSuccessMessage(''), 5000);
+        } catch (fetchError) {
+          if (fetchError.message.includes('Failed to fetch') || fetchError.message.includes('NetworkError')) {
+            throw new Error(`Could not connect to server at ${serverUrl}. Server may be offline.`);
+          }
+          throw fetchError;
+        } finally {
+          setServerLoading(false);
+        }
+      } else {
+        // For subsequent withdrawals, use direct contract interaction
+        console.log("Calling withdraw directly with signature and message...");
+        const tx = await contractWithSigner.withdraw(sig.v, sig.r, sig.s, messageToSign);
+        console.log("Transaction submitted:", tx.hash);
+        await tx.wait();
+        console.log("Transaction confirmed!");
+      }
+      
       await updateInfo();
     } catch (err) {
       console.error("Withdrawal error:", err);
@@ -345,6 +398,12 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
                 <div className="progress-line"></div>
                 <div className={`progress-step ${withdrawalCount >= 3 ? 'completed' : withdrawalCount === 2 ? 'current' : ''}`}>3</div>
               </div>
+              {withdrawalCount === 0 && (
+                <div className="first-withdrawal-info">
+                  <p>Your first withdrawal will be processed through our server to simplify the gas payment process.</p>
+                  <p>Subsequent withdrawals will interact with the contract directly.</p>
+                </div>
+              )}
               <div className="current-message">
                 <div className="message-content">
                   <p>{WITHDRAWAL_MESSAGES[withdrawalCount]}</p>
@@ -356,6 +415,11 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
                   <div className="message-highlight">
                     <span>✍️ Sign this message to receive 0.1 tokens</span>
                   </div>
+                  {withdrawalCount === 0 && (
+                    <div className="server-info">
+                      <p>📡 First withdrawal will use server API at {isDev ? 'localhost' : '45.33.62.126'}</p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -363,13 +427,15 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           <div className="actions-container">
             <button
               onClick={handleWithdraw}
-              disabled={loading || Number(cooldown) > 0 || withdrawalCount >= 3}
+              disabled={loading || serverLoading || Number(cooldown) > 0 || withdrawalCount >= 3}
               className="action-button"
             >
               {loading ? 'Processing...' :
+                serverLoading ? 'Sending to Server...' :
                 withdrawalCount >= 3 ? 'Maximum withdrawals reached' :
                 Number(cooldown) > 0 ? `Faucet available in ${formatCooldown()}` :
-                `Sign & Request 0.1 ${networkConfig.nativeCurrency.symbol} Tokens`}
+                withdrawalCount === 0 ? `Sign & Request via Server (First Withdrawal)` :
+                `Sign & Request 0.1 ${networkConfig.nativeCurrency.symbol} Directly`}
             </button>
             <button onClick={() => setShowRefill(!showRefill)} className="refill-toggle-button" style={{ display: 'none' }}>
               {showRefill ? '↑ Hide Refill' : '↓ Show Refill'}
@@ -392,6 +458,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
             </div>
           )}
           {error && <p className="error">{error}</p>}
+          {successMessage && <p className="success-message">{successMessage}</p>}
         </div>
       )}
     </div>

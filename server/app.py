@@ -1,15 +1,29 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 from web3 import Web3
 import os
 import logging
+import time
 
 app = Flask(__name__)
+# Enable CORS for all routes and all origins during development
+CORS(app, resources={r"/*": {"origins": "*"}})
 logging.basicConfig(level=logging.INFO)
+
+@app.after_request
+def after_request(response):
+    """Log CORS info for debugging."""
+    origin = request.headers.get('Origin', '')
+    logging.info(f"Request from origin: {origin}")
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 # Network configurations with deployed contract addresses
 networks = {
     'sepolia': {
-        'rpc_url': '"https://sepolia-rpc.scroll.io',
+        'rpc_url': 'https://sepolia-rpc.scroll.io',
         'chain_id': 11155111,
         'private_key': os.getenv('PRIVATE_KEY'),
         'faucet_address': '0x6792e2DeA462E744E28D04d701F6C7505009ea1c',  # Replace with actual address
@@ -23,6 +37,11 @@ networks = {
         'backend_address': '0xYourAnimeChainBackendAddress'  # Replace with actual address
     }
 }
+
+# Check if private key is available
+if not os.getenv('PRIVATE_KEY'):
+    logging.warning("PRIVATE_KEY environment variable not set! The server will not be able to send transactions.")
+    # In production, you might want to raise an error here
 
 # Initialize Web3 instances with fallback
 web3_instances = {}
@@ -49,68 +68,179 @@ GAS_RESERVE = 10000000000000000      # 0.01 token in wei
 @app.route('/request-withdrawal', methods=['POST'])
 def request_withdrawal():
     """Handle withdrawal requests for Sepolia or AnimeChain."""
-    data = request.json
+    logging.info("Received withdrawal request")
     try:
+        data = request.json
+        logging.info(f"Request data: {data}")
+        
+        # Validate required fields
+        required_fields = ['network', 'user_address', 'v', 'r', 's', 'message']
+        for field in required_fields:
+            if field not in data:
+                logging.error(f"Missing required field: {field}")
+                return jsonify({'error': f'Missing required field: {field}'}), 400
+        
         network = data['network']  # 'sepolia' or 'animechain'
-        user_address = Web3.toChecksumAddress(data['user_address'])
-        v = int(data['v'])
-        r = data['r']
-        s = data['s']
-        message = data['message']
-    except (KeyError, ValueError):
-        return jsonify({'error': 'Invalid input'}), 400
+        logging.info(f"Processing request for network: {network}")
+        
+        # Validate network before using it
+        if network not in networks:
+            logging.error(f"Invalid network requested: {network}")
+            return jsonify({'error': f'Invalid network: {network}'}), 400
+            
+        # Get the appropriate web3 instance for this network
+        if network not in web3_instances:
+            logging.error(f"No web3 instance available for network: {network}")
+            return jsonify({'error': f'Network {network} is not available'}), 503
+            
+        web3 = web3_instances[network]
+        
+        # Use the web3 instance to create checksum address
+        try:
+            user_address = web3.to_checksum_address(data['user_address'])
+            logging.info(f"User address: {user_address}")
+        except Exception as e:
+            logging.error(f"Invalid address format: {data['user_address']}, error: {str(e)}")
+            return jsonify({'error': 'Invalid Ethereum address format'}), 400
+        
+        # Parse signature components
+        try:
+            v = int(data['v'])
+            r = data['r']
+            s = data['s']
+            message = data['message']
+            logging.info(f"Signature components: v={v}, r={r[:10]}..., s={s[:10]}...")
+        except (ValueError, TypeError) as e:
+            logging.error(f"Error parsing signature components: {str(e)}")
+            return jsonify({'error': 'Invalid signature components'}), 400
 
-    if network not in networks:
-        return jsonify({'error': 'Invalid network'}), 400
+        # Select network-specific settings
+        config = networks[network]
+        faucet_address = config['faucet_address']
+        backend_address = config['backend_address']
+        private_key = config['private_key']
+        
+        if not private_key:
+            logging.error("Missing PRIVATE_KEY environment variable")
+            return jsonify({'error': 'Server configuration error: Missing private key'}), 500
 
-    # Select network-specific settings
-    config = networks[network]
-    web3 = web3_instances[network]
-    faucet_address = config['faucet_address']
-    backend_address = config['backend_address']
-    private_key = config['private_key']
+        # Basic signature validation
+        if v not in [27, 28] or not (isinstance(r, str) and len(r) == 66) or not (isinstance(s, str) and len(s) == 66):
+            logging.error(f"Invalid signature format: v={v}, r={r[:10]}..., s={s[:10]}...")
+            return jsonify({'error': 'Invalid signature components format'}), 400
 
-    # Basic signature validation
-    if v not in [27, 28] or not (isinstance(r, str) and len(r) == 66) or not (isinstance(s, str) and len(s) == 66):
-        return jsonify({'error': 'Invalid signature components'}), 400
+        # Contract instances
+        try:
+            faucet_contract = web3.eth.contract(address=faucet_address, abi=faucet_abi)
+            backend_contract = web3.eth.contract(address=backend_address, abi=backend_abi)
+        except Exception as e:
+            logging.error(f"Error creating contract instances: {str(e)}")
+            return jsonify({'error': 'Contract initialization error'}), 500
 
-    # Contract instances
-    faucet_contract = web3.eth.contract(address=faucet_address, abi=faucet_abi)
-    backend_contract = web3.eth.contract(address=backend_address, abi=backend_abi)
+        # Off-chain checks
+        try:
+            withdrawal_count = faucet_contract.functions.get_withdrawal_count(user_address).call()
+            logging.info(f"User withdrawal count: {withdrawal_count}")
+            if withdrawal_count > 0:
+                return jsonify({'error': 'User has already withdrawn'}), 400
+                
+            cooldown = faucet_contract.functions.time_until_next_withdrawal().call()
+            logging.info(f"Global cooldown: {cooldown} seconds")
+            if cooldown > 0:
+                return jsonify({'error': f'Global cooldown active: {cooldown} seconds remaining'}), 400
+                
+            balance = faucet_contract.functions.get_balance().call()
+            logging.info(f"Faucet balance: {balance}")
+            if balance < WITHDRAW_AMOUNT + GAS_RESERVE:
+                return jsonify({'error': 'Insufficient faucet balance'}), 400
+                
+            expected_message = faucet_contract.functions.get_expected_message(user_address).call()
+            logging.info(f"Expected message: '{expected_message}', Provided message: '{message}'")
+            if message != expected_message:
+                return jsonify({'error': 'Incorrect message'}), 400
+        except Exception as e:
+            logging.error(f"Contract check failed for {user_address} on {network}: {str(e)}")
+            return jsonify({'error': f'Contract check failed: {str(e)}'}), 500
 
-    # Off-chain checks
-    try:
-        if faucet_contract.functions.get_withdrawal_count(user_address).call() > 0:
-            return jsonify({'error': 'User has already withdrawn'}), 400
-        if faucet_contract.functions.time_until_next_withdrawal().call() > 0:
-            return jsonify({'error': 'Global cooldown active'}), 400
-        if faucet_contract.functions.get_balance().call() < WITHDRAW_AMOUNT + GAS_RESERVE:
-            return jsonify({'error': 'Insufficient faucet balance'}), 400
-        expected_message = faucet_contract.functions.get_expected_message(user_address).call()
-        if message != expected_message:
-            return jsonify({'error': 'Incorrect message'}), 400
+        # Build and send transaction
+        try:
+            account = web3.eth.account.from_key(private_key)
+            logging.info(f"Using account {account.address} to send transaction")
+            
+            # Get the current gas price
+            gas_price = web3.eth.gas_price
+            logging.info(f"Current gas price: {gas_price}")
+            
+            # Ensure we use enough gas price (at least 50 gwei)
+            min_gas_price = web3.to_wei('50', 'gwei')
+            gas_price = max(gas_price, min_gas_price)
+            
+            # Get the nonce for the account
+            nonce = web3.eth.get_transaction_count(account.address)
+            logging.info(f"Using nonce: {nonce}")
+            
+            # Build the transaction
+            txn = backend_contract.functions.requestWithdrawal(
+                faucet_address, user_address, v, r, s, message
+            ).build_transaction({
+                'from': account.address,
+                'nonce': nonce,
+                'gas': 200000,
+                'gasPrice': gas_price
+            })
+            
+            logging.info(f"Transaction built: {txn}")
+            
+            # Sign the transaction
+            signed_txn = web3.eth.account.sign_transaction(txn, private_key)
+            
+            # Send the transaction
+            tx_hash = web3.eth.send_raw_transaction(signed_txn.rawTransaction)
+            tx_hash_hex = tx_hash.hex()
+            logging.info(f"Transaction sent: {tx_hash_hex} for {user_address} on {network}")
+            
+            return jsonify({'tx_hash': tx_hash_hex, 'status': 'success'})
+        except Exception as e:
+            logging.error(f"Transaction failed for {user_address} on {network}: {str(e)}")
+            return jsonify({'error': f'Transaction failed: {str(e)}'}), 500
+            
     except Exception as e:
-        logging.error(f"Check failed for {user_address} on {network}: {str(e)}")
-        return jsonify({'error': 'Check failed'}), 500
+        logging.error(f"Unexpected error processing withdrawal request: {str(e)}")
+        return jsonify({'error': f'Server error: {str(e)}'}), 500
 
-    # Build and send transaction
-    try:
-        account = web3.eth.account.from_key(private_key)
-        txn = backend_contract.functions.requestWithdrawal(
-            faucet_address, user_address, v, r, s, message
-        ).buildTransaction({
-            'from': account.address,
-            'nonce': web3.eth.getTransactionCount(account.address),
-            'gas': 200000,
-            'gasPrice': web3.toWei('50', 'gwei')
-        })
-        signed_txn = web3.eth.account.signTransaction(txn, private_key)
-        tx_hash = web3.eth.sendRawTransaction(signed_txn.rawTransaction)
-        logging.info(f"Tx {tx_hash.hex()} sent for {user_address} on {network}")
-        return jsonify({'tx_hash': tx_hash.hex()})
-    except Exception as e:
-        logging.error(f"Tx failed for {user_address} on {network}: {str(e)}")
-        return jsonify({'error': str(e)}), 500
+@app.route('/status', methods=['GET'])
+def status():
+    """Return server status and connected networks."""
+    networks_status = {}
+    
+    for network, web3 in web3_instances.items():
+        try:
+            block_number = web3.eth.block_number
+            networks_status[network] = {
+                'connected': True,
+                'block_number': block_number,
+                'faucet_address': networks[network]['faucet_address'],
+                'backend_address': networks[network]['backend_address']
+            }
+        except Exception as e:
+            networks_status[network] = {
+                'connected': False,
+                'error': str(e)
+            }
+    
+    return jsonify({
+        'status': 'running',
+        'networks': networks_status,
+        'timestamp': int(time.time())
+    })
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+    # Check if running in development mode
+    debug_mode = os.getenv('FLASK_ENV') == 'development' or os.getenv('DEBUG') == 'true'
+    
+    if debug_mode:
+        logging.info("Starting server in DEBUG mode")
+        app.run(host='0.0.0.0', port=5000, debug=True)
+    else:
+        logging.info("Starting server in PRODUCTION mode")
+        app.run(host='0.0.0.0', port=5000)
