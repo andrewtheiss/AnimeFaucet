@@ -9,16 +9,16 @@ const FAUCET_ABI = [
 ];
 
 const ANIME_CHAIN = {
-  chainId: '0x10D78', // 69000 in hex
+  chainId: '0x10D88', // 69000 in hex
   chainName: 'AnimeChain',
   nativeCurrency: {
-    name: 'AnimeCoin',
+    name: 'Anime',
     symbol: 'ANIME',
     decimals: 18
   },
   rpcUrls: ['https://rpc-animechain-39xf6m45e3.t.conduit.xyz/'],
   blockExplorerUrls: ['https://explorer-animechain-39xf6m45e3.t.conduit.xyz/'],
-  iconUrls: ['https://animechain.dev/animecoin.png']
+  iconUrls: [window.location.origin + '/assets/animecoin.png']
 };
 
 function Faucet({ contractAddress }) {
@@ -77,10 +77,35 @@ function Faucet({ contractAddress }) {
       if (!window.ethereum) {
         throw new Error('Please install MetaMask');
       }
+
+      setLoading(true);
+      setError('');
+
+      // First try to add/switch to AnimeChain
+      try {
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: ANIME_CHAIN.chainId }],
+        });
+      } catch (switchError) {
+        // This error code indicates that the chain has not been added to MetaMask
+        if (switchError.code === 4902) {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [ANIME_CHAIN],
+          });
+        } else {
+          throw switchError;
+        }
+      }
+
+      // After ensuring we're on the right chain, connect the wallet
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
       setAccount(accounts[0]);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -125,16 +150,14 @@ function Faucet({ contractAddress }) {
 
   return (
     <div className="faucet-container">
-      <button 
-        onClick={addAnimeChainToMetaMask}
-        className="add-chain-button"
-        disabled={loading}
-      >
-        Add AnimeChain to MetaMask
-      </button>
-
       {!account ? (
-        <button onClick={connectWallet} disabled={loading}>Connect Wallet</button>
+        <button 
+          onClick={connectWallet} 
+          disabled={loading}
+          className="connect-button"
+        >
+          {loading ? 'Connecting...' : 'Connect to AnimeChain'}
+        </button>
       ) : (
         <div>
           <p>Connected Account: {account}</p>
@@ -144,7 +167,7 @@ function Faucet({ contractAddress }) {
             onClick={handleWithdraw} 
             disabled={loading || Number(cooldown) > 0}
           >
-            {loading ? 'Processing...' : 'Request Tokens'}
+            {loading ? 'Processing...' : 'Request ANIME Tokens'}
           </button>
           {error && <p className="error">{error}</p>}
         </div>
