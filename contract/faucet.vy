@@ -1,12 +1,12 @@
 #pragma version >0.4.0
 
 # Faucet contract with EIP-712 signature verification
-# Users must sign specific degen messages in order for 3 withdrawals of 0.1 native token, with a global 15-minute cooldown
+# Users must sign specific messages for 3 withdrawals of 0.1 native token, with a global 15-minute cooldown
 
 # Define constants
 WITHDRAW_AMOUNT: constant(uint256) = 100000000000000000  # 0.1 token (in wei, assuming 18 decimals)
 COOLDOWN_PERIOD: constant(uint256) = 450  # 7 minutes 30 seconds (in seconds)
-MAX_WITHDRAWALS: constant(uint256) = 3  # Maximum withdrawals per account
+MAX_WITHDRAWALS: constant(uint256) = 3    # Maximum withdrawals per account
 GAS_RESERVE: constant(uint256) = 10000000000000000  # 0.01 token reserved for gas costs
 
 # Specific messages to sign for each withdrawal (in order)
@@ -19,9 +19,11 @@ EIP712_DOMAIN_TYPEHASH: constant(bytes32) = keccak256("EIP712Domain(string name,
 MESSAGE_TYPEHASH: constant(bytes32) = keccak256("FaucetRequest(address recipient,string message,uint256 nonce)")
 
 # Storage variables
-last_global_withdrawal: public(uint256)  # Tracks the last withdrawal time globally
-nonce: public(HashMap[address, uint256])  # Nonce to prevent replay attacks
-withdrawal_count: public(HashMap[address, uint256])  # Tracks number of withdrawals per user
+owner: public(address)                            # Owner of the contract
+authorizedBackends: public(HashMap[address, bool]) # Whitelist of authorized backend contracts
+last_global_withdrawal: public(uint256)           # Tracks the last withdrawal time globally
+nonce: public(HashMap[address, uint256])          # Nonce to prevent replay attacks
+withdrawal_count: public(HashMap[address, uint256]) # Tracks number of withdrawals per user
 
 # Events for logging withdrawals and deposits
 event Withdrawal:
@@ -34,6 +36,11 @@ event Deposit:
     sender: indexed(address)
     amount: uint256
     timestamp: uint256
+
+# Constructor to set the owner
+@deploy
+def __init__():
+    self.owner = msg.sender
 
 # Fallback function to accept native token deposits
 @external
@@ -48,10 +55,9 @@ def deposit():
     assert msg.value > 0, "Must send some tokens"
     log Deposit(msg.sender, msg.value, block.timestamp)
 
-# Function to withdraw 0.1 native token with EIP-712 signature
+# Function to withdraw 0.1 native token with EIP-712 signature (original functionality)
 @external
 def withdraw(_v: uint8, _r: bytes32, _s: bytes32, _message: String[103]):
-    # Get the current timestamp
     current_time: uint256 = block.timestamp
     
     # Check global cooldown
@@ -85,7 +91,7 @@ def withdraw(_v: uint8, _r: bytes32, _s: bytes32, _message: String[103]):
         )
     )
 
-    # Construct the message hash (includes the specific message and nonce)
+    # Construct the message hash
     message_hash: bytes32 = keccak256(
         abi_encode(
             MESSAGE_TYPEHASH,
@@ -116,11 +122,97 @@ def withdraw(_v: uint8, _r: bytes32, _s: bytes32, _message: String[103]):
     self.withdrawal_count[msg.sender] = current_count + 1
     self.last_global_withdrawal = current_time
 
-    # Send the native token (WITHDRAW_AMOUNT only, GAS_RESERVE stays in contract)
+    # Send the native token
     send(msg.sender, WITHDRAW_AMOUNT)
 
     # Emit withdrawal event
     log Withdrawal(msg.sender, WITHDRAW_AMOUNT, current_time, current_count + 1)
+
+# Function for backend contract to withdraw on behalf of a user (first withdrawal only)
+@external
+def withdrawFor(_user: address, _v: uint8, _r: bytes32, _s: bytes32, _message: String[103]):
+    # Restrict to authorized backend contracts
+    assert self.authorizedBackends[msg.sender], "Unauthorized backend"
+    
+    current_time: uint256 = block.timestamp
+    
+    # Check global cooldown
+    assert self.last_global_withdrawal == 0 or current_time >= self.last_global_withdrawal + COOLDOWN_PERIOD, "Global cooldown period not elapsed"
+    
+    # Ensure this is the user's first withdrawal
+    assert self.withdrawal_count[_user] == 0, "User already withdrew"
+    
+    # Check contract balance
+    assert self.balance >= WITHDRAW_AMOUNT + GAS_RESERVE, "Insufficient contract balance"
+    
+    # Verify the message is MESSAGE_1 (first withdrawal)
+    assert _message == MESSAGE_1, "Wrong message"
+
+    # Construct EIP-712 domain separator
+    domain_separator: bytes32 = keccak256(
+        abi_encode(
+            EIP712_DOMAIN_TYPEHASH,
+            keccak256(convert("Faucet", Bytes[6])),
+            keccak256(convert("1", Bytes[1])),
+            chain.id,
+            self
+        )
+    )
+
+    # Construct the message hash with _user as recipient
+    message_hash: bytes32 = keccak256(
+        abi_encode(
+            MESSAGE_TYPEHASH,
+            _user,
+            keccak256(convert(_message, Bytes[103])),
+            self.nonce[_user]
+        )
+    )
+
+    # Compute the final digest
+    digest: bytes32 = keccak256(
+        concat(
+            b'\x19\x01',
+            domain_separator,
+            message_hash
+        )
+    )
+
+    # Verify the user's signature
+    signer: address = ecrecover(digest, _v, _r, _s)
+    assert signer == _user, "Invalid signature"
+    assert signer != empty(address), "Signature verification failed"
+
+    # Increment nonce to prevent replay
+    self.nonce[_user] += 1
+
+    # Update withdrawal count and global withdrawal time
+    self.withdrawal_count[_user] = 1
+    self.last_global_withdrawal = current_time
+
+    # Send the native token to the user
+    send(_user, WITHDRAW_AMOUNT)
+
+    # Emit withdrawal event
+    log Withdrawal(_user, WITHDRAW_AMOUNT, current_time, 1)
+
+# Function to add an authorized backend contract to the whitelist
+@external
+def addBackend(_backend: address):
+    assert msg.sender == self.owner, "Only owner"
+    self.authorizedBackends[_backend] = True
+
+# Function to remove an authorized backend contract from the whitelist
+@external
+def removeBackend(_backend: address):
+    assert msg.sender == self.owner, "Only owner"
+    self.authorizedBackends[_backend] = False
+
+# Function to transfer ownership
+@external
+def transferOwnership(_newOwner: address):
+    assert msg.sender == self.owner, "Only owner"
+    self.owner = _newOwner
 
 # Function to check contract balance (view function)
 @external
