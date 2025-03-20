@@ -1,11 +1,11 @@
 #pragma version >0.4.0
 
 # Faucet contract with EIP-712 signature verification
-# Users must sign specific degen messages in order for 3 withdrawals of 0.1 native token, every 15 minutes
+# Users must sign specific degen messages in order for 3 withdrawals of 0.1 native token, with a global 15-minute cooldown
 
 # Define constants
 WITHDRAW_AMOUNT: constant(uint256) = 100000000000000000  # 0.1 token (in wei, assuming 18 decimals)
-COOLDOWN_PERIOD: constant(uint256) = 900  # 15 minutes in seconds
+COOLDOWN_PERIOD: constant(uint256) = 450  # 7 minutes 30 seconds (in seconds)
 MAX_WITHDRAWALS: constant(uint256) = 3  # Maximum withdrawals per account
 GAS_RESERVE: constant(uint256) = 10000000000000000  # 0.01 token reserved for gas costs
 
@@ -19,7 +19,7 @@ EIP712_DOMAIN_TYPEHASH: constant(bytes32) = keccak256("EIP712Domain(string name,
 MESSAGE_TYPEHASH: constant(bytes32) = keccak256("FaucetRequest(address recipient,string message,uint256 nonce)")
 
 # Storage variables
-last_withdrawal: public(HashMap[address, uint256])  # Tracks the last withdrawal time for each user
+last_global_withdrawal: public(uint256)  # Tracks the last withdrawal time globally
 nonce: public(HashMap[address, uint256])  # Nonce to prevent replay attacks
 withdrawal_count: public(HashMap[address, uint256])  # Tracks number of withdrawals per user
 
@@ -54,11 +54,10 @@ def withdraw(_v: uint8, _r: bytes32, _s: bytes32, _message: String[103]):
     # Get the current timestamp
     current_time: uint256 = block.timestamp
     
-    # Check cooldown
-    last_time: uint256 = self.last_withdrawal[msg.sender]
-    assert last_time == 0 or current_time >= last_time + COOLDOWN_PERIOD, "Cooldown period not elapsed"
+    # Check global cooldown
+    assert self.last_global_withdrawal == 0 or current_time >= self.last_global_withdrawal + COOLDOWN_PERIOD, "Global cooldown period not elapsed"
 
-    # Check withdrawal limit
+    # Check withdrawal limit per user
     current_count: uint256 = self.withdrawal_count[msg.sender]
     assert current_count < MAX_WITHDRAWALS, "Max withdrawals reached"
 
@@ -113,9 +112,9 @@ def withdraw(_v: uint8, _r: bytes32, _s: bytes32, _message: String[103]):
     # Increment nonce to prevent replay
     self.nonce[msg.sender] += 1
 
-    # Update withdrawal count and last withdrawal time
+    # Update withdrawal count and global withdrawal time
     self.withdrawal_count[msg.sender] = current_count + 1
-    self.last_withdrawal[msg.sender] = current_time
+    self.last_global_withdrawal = current_time
 
     # Send the native token (WITHDRAW_AMOUNT only, GAS_RESERVE stays in contract)
     send(msg.sender, WITHDRAW_AMOUNT)
@@ -129,14 +128,13 @@ def withdraw(_v: uint8, _r: bytes32, _s: bytes32, _message: String[103]):
 def get_balance() -> uint256:
     return self.balance
 
-# Function to check when a user can withdraw next (view function)
+# Function to check when the next withdrawal can occur (view function)
 @external
 @view
-def time_until_next_withdrawal(_user: address) -> uint256:
-    last_time: uint256 = self.last_withdrawal[_user]
-    if last_time == 0:
+def time_until_next_withdrawal() -> uint256:
+    if self.last_global_withdrawal == 0:
         return 0
-    next_time: uint256 = last_time + COOLDOWN_PERIOD
+    next_time: uint256 = self.last_global_withdrawal + COOLDOWN_PERIOD
     if block.timestamp >= next_time:
         return 0
     return next_time - block.timestamp

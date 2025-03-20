@@ -305,6 +305,19 @@
   color: #fff;
 }
 
+.expected-message {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: rgba(255, 107, 107, 0.1);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 107, 107, 0.3);
+}
+
+.expected-message p {
+  font-size: 0.9rem !important;
+  color: #ff6b6b !important;
+}
+
 .message-highlight {
   margin-top: 1rem;
   color: #646cff;
