@@ -170,11 +170,6 @@ def request_withdrawal():
             if withdrawal_count > 0:
                 return jsonify({'error': 'User has already withdrawn'}), 400
                 
-            cooldown = faucet_contract.functions.time_until_next_withdrawal().call()
-            logging.info(f"Global cooldown: {cooldown} seconds")
-            if cooldown > 0:
-                return jsonify({'error': f'Global cooldown active: {cooldown} seconds remaining'}), 400
-                
             balance = faucet_contract.functions.get_balance().call()
             logging.info(f"Faucet balance: {balance}")
             if balance < WITHDRAW_AMOUNT:

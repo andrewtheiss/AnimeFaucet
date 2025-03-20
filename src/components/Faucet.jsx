@@ -478,7 +478,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   };
 
   return (
-    <div className="faucet-container dark-theme" style={{backgroundImage: `url(${animeBackground})`, backgroundSize: 'cover', backgroundPosition: 'center'}}>
+    <div className="faucet-container dark-theme">
       <div className="logo-container">
         <img src={animecoinIcon} alt="Animecoin Logo" className="animecoin-logo" />
       </div>
@@ -624,7 +624,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           left: 0;
           right: 0;
           bottom: 0;
-          background-color: rgba(18, 18, 18, 0.85);
+          background-color: transparent;
           border-radius: 10px;
           z-index: -1;
         }
@@ -837,7 +837,6 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
         }
         
         .message-highlight {
-          background-color: #6c5ce7;
           padding: 10px;
           border-radius: 6px;
           margin-top: 15px;
