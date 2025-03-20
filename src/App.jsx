@@ -1,32 +1,17 @@
 import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
 import './App.css'
+import Faucet from './components/Faucet'
 
 function App() {
-  const [count, setCount] = useState(0)
+  // Replace this with your deployed contract address
+  const contractAddress = "0xYourContractAddress";
 
   return (
     <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
+      <h1>ETH Faucet</h1>
+      <Faucet contractAddress={contractAddress} />
       <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
+        Connect your wallet to request test ETH
       </p>
     </>
   )
