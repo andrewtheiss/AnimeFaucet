@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import { FAUCET_ABI, NETWORKS, WITHDRAWAL_MESSAGES } from '../constants/contracts';
 
+// Define constants to match contract
+const COOLDOWN_PERIOD = 900; // 15 minutes in seconds
+
 function Faucet({ contractAddress, isDev = false }) {
   const [account, setAccount] = useState(null);
   const [provider, setProvider] = useState(null);
@@ -18,6 +21,27 @@ function Faucet({ contractAddress, isDev = false }) {
 
   // Get the appropriate network configuration based on isDev flag
   const networkConfig = isDev ? NETWORKS.sepolia : NETWORKS.animechain;
+
+  // Format cooldown for display
+  const formatCooldown = () => {
+    const cooldownSeconds = Number(cooldown);
+    if (cooldownSeconds <= 0) return 'Available now';
+    
+    if (cooldownSeconds < 60) {
+      return `${cooldownSeconds} second${cooldownSeconds !== 1 ? 's' : ''}`;
+    } else {
+      const minutes = Math.floor(cooldownSeconds / 60);
+      const seconds = cooldownSeconds % 60;
+      return `${minutes} minute${minutes !== 1 ? 's' : ''} ${seconds} second${seconds !== 1 ? 's' : ''}`;
+    }
+  };
+
+  // Calculate cooldown percentage for progress display
+  const cooldownPercentage = () => {
+    const cooldownSeconds = Number(cooldown);
+    if (cooldownSeconds <= 0) return 100;
+    return 100 - (cooldownSeconds / COOLDOWN_PERIOD) * 100;
+  };
 
   useEffect(() => {
     const init = async () => {
@@ -111,16 +135,33 @@ function Faucet({ contractAddress, isDev = false }) {
     }
   };
 
+  // Add a timer to update the cooldown
   useEffect(() => {
+    let timer;
     if (account) {
+      // Update info immediately
       updateInfo();
+      
+      // Set interval to update cooldown and other info every 15 seconds for 15-minute cooldowns
+      timer = setInterval(() => {
+        updateInfo();
+      }, 15000);
     }
+    
+    // Cleanup timer on unmount or when account changes
+    return () => {
+      if (timer) clearInterval(timer);
+    };
   }, [account, contract]);
 
   const handleWithdraw = async () => {
     try {
       setLoading(true);
       setError('');
+      
+      console.log("Starting withdrawal process...");
+      console.log("Expected message:", expectedMessage);
+      console.log("Current nonce:", nonce);
       
       const signer = await provider.getSigner();
       const contractWithSigner = contract.connect(signer);
@@ -146,21 +187,29 @@ function Faucet({ contractAddress, isDev = false }) {
       const message = {
         recipient: account,
         message: expectedMessage,
-        nonce: nonce
+        nonce: parseInt(nonce)
       };
 
+      console.log("Signing data:", { domain, types, message });
+      
       // Get the signature
       const signature = await signer.signTypedData(domain, types, message);
+      console.log("Signature obtained:", signature);
       
       // Split signature into v, r, s
       const sig = ethers.Signature.from(signature);
       
       // Call withdraw with signature components and message
+      console.log("Calling withdraw with signature and message...");
       const tx = await contractWithSigner.withdraw(sig.v, sig.r, sig.s, expectedMessage);
+      console.log("Transaction submitted:", tx.hash);
+      
       await tx.wait();
+      console.log("Transaction confirmed!");
       
       await updateInfo();
     } catch (err) {
+      console.error("Withdrawal error:", err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -213,9 +262,23 @@ function Faucet({ contractAddress, isDev = false }) {
       ) : (
         <div>
           <div className="info-container">
+            <div className="network-info">
+              <span className="network-badge">{networkConfig.chainName}</span>
+            </div>
             <p className="account-info">Connected Account: {account}</p>
             <p className="balance-info">Faucet Balance: {balance} {networkConfig.nativeCurrency.symbol}</p>
-            <p className="cooldown-info">Time until next withdrawal: {cooldown} seconds</p>
+            <p className="cooldown-info">Time until next withdrawal: {formatCooldown()}</p>
+            {Number(cooldown) > 0 && (
+              <>
+                <div className="cooldown-progress-container">
+                  <div 
+                    className="cooldown-progress-bar" 
+                    style={{width: `${cooldownPercentage()}%`}}
+                  ></div>
+                </div>
+                <p className="cooldown-warning">Please wait for the 15-minute cooldown to complete before your next withdrawal.</p>
+              </>
+            )}
             <p className="withdrawal-count">
               Withdrawals completed: <span className="count">{withdrawalCount}</span> / 3
             </p>
@@ -223,14 +286,22 @@ function Faucet({ contractAddress, isDev = false }) {
 
           {withdrawalCount < 3 && (
             <div className="messages-container">
-              <h3>Sign Message to get {networkConfig.nativeCurrency.symbol}</h3>
-              <p className="signature-info">A unique signature is required for each withdrawal</p>
+              <h3>Sign Message to get 0.1 {networkConfig.nativeCurrency.symbol}</h3>
+              <p className="signature-info">A unique signature is required for each withdrawal (15 minute cooldown)</p>
+              
+              <div className="message-progress">
+                <div className={`progress-step ${withdrawalCount >= 1 ? 'completed' : withdrawalCount === 0 ? 'current' : ''}`}>1</div>
+                <div className="progress-line"></div>
+                <div className={`progress-step ${withdrawalCount >= 2 ? 'completed' : withdrawalCount === 1 ? 'current' : ''}`}>2</div>
+                <div className="progress-line"></div>
+                <div className={`progress-step ${withdrawalCount >= 3 ? 'completed' : withdrawalCount === 2 ? 'current' : ''}`}>3</div>
+              </div>
               
               <div className="current-message">
                 <div className="message-content">
                   <p>{WITHDRAWAL_MESSAGES[withdrawalCount]}</p>
                   <div className="message-highlight">
-                    <span>✍️ Sign this message to receive tokens</span>
+                    <span>✍️ Sign this message to receive 0.1 tokens</span>
                   </div>
                 </div>
               </div>
@@ -245,7 +316,8 @@ function Faucet({ contractAddress, isDev = false }) {
             >
               {loading ? 'Processing...' : 
                 withdrawalCount >= 3 ? 'Maximum withdrawals reached' :
-                `Sign & Request ${networkConfig.nativeCurrency.symbol} Tokens`}
+                Number(cooldown) > 0 ? `Available in ${formatCooldown()}` :
+                `Sign & Request 0.1 ${networkConfig.nativeCurrency.symbol} Tokens`}
             </button>
             
             <button 

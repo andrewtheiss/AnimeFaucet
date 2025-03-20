@@ -1,16 +1,18 @@
+#pragma version >0.4.0
+
 # Faucet contract with EIP-712 signature verification
-# Users must sign specific degen messages in order for 3 withdrawals of 0.001 native token, every 10 seconds
+# Users must sign specific degen messages in order for 3 withdrawals of 0.1 native token, every 15 minutes
 
 # Define constants
-WITHDRAW_AMOUNT: constant(uint256) = 1000000000000000  # 0.001 token (in wei, assuming 18 decimals)
-COOLDOWN_PERIOD: constant(uint256) = 10  # 10 seconds
+WITHDRAW_AMOUNT: constant(uint256) = 100000000000000000  # 0.1 token (in wei, assuming 18 decimals)
+COOLDOWN_PERIOD: constant(uint256) = 900  # 15 minutes in seconds
 MAX_WITHDRAWALS: constant(uint256) = 3  # Maximum withdrawals per account
 GAS_RESERVE: constant(uint256) = 10000000000000000  # 0.01 token reserved for gas costs
 
 # Specific messages to sign for each withdrawal (in order)
-MESSAGE_1: constant(String[103]) = "Ill use this ANIME coin to build something, maybe, or just hodl it til I can flex on normies, idk."
-MESSAGE_2: constant(String[103]) = "Gonna build with this ANIME coin, not yeet it into a pool and cry wen moon like a pleb."
-MESSAGE_3: constant(String[103]) = "Gonna use this ANIME coin to slap some code together or just diamond-hand it til I can rug my mom, lfg."
+MESSAGE_1: constant(String[103]) = "Ill use this ANIME coin to build something on ANIME chain and not sell it like a degen."
+MESSAGE_2: constant(String[103]) = "Gonna build more with this ANIME coin, and not ape into a meme coin."
+MESSAGE_3: constant(String[103]) = "Gonna use this ANIME as my last hope for creating something worthwhile.  God help me."
 
 # EIP-712 domain constants
 EIP712_DOMAIN_TYPEHASH: constant(bytes32) = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
@@ -46,7 +48,7 @@ def deposit():
     assert msg.value > 0, "Must send some tokens"
     log Deposit(msg.sender, msg.value, block.timestamp)
 
-# Function to withdraw 0.001 native token with EIP-712 signature
+# Function to withdraw 0.1 native token with EIP-712 signature
 @external
 def withdraw(_v: uint8, _r: bytes32, _s: bytes32, _message: String[103]):
     # Get the current timestamp
