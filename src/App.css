@@ -3,6 +3,7 @@
   margin: 0 auto;
   padding: 2rem;
   text-align: center;
+  color: #ffffff;
 }
 
 .logo {
@@ -12,7 +13,7 @@
   transition: filter 300ms;
 }
 .logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
+  filter: drop-shadow(0 0 2em #6c5ce7aa);
 }
 .logo.react:hover {
   filter: drop-shadow(0 0 2em #61dafbaa);
@@ -38,7 +39,7 @@
 }
 
 .read-the-docs {
-  color: #888;
+  color: #ccc;
   margin-top: 1rem;
 }
 
@@ -46,19 +47,25 @@
   margin: 2rem auto;
   padding: 2rem;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(30, 30, 30, 0.7);
   max-width: 600px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
 .faucet-container button {
-  background-color: #646cff;
+  background-color: #6c5ce7;
   border: 1px solid transparent;
   padding: 0.6em 1.2em;
   font-size: 1em;
   font-weight: 500;
   font-family: inherit;
   cursor: pointer;
-  transition: border-color 0.25s;
+  transition: border-color 0.25s, background-color 0.25s;
+  color: white;
+}
+
+.faucet-container button:hover {
+  background-color: #5549c0;
 }
 
 .faucet-container button:disabled {
@@ -67,19 +74,23 @@
 }
 
 .error {
-  color: #ff4444;
+  color: #ff5252;
   margin-top: 1rem;
+  background-color: rgba(255, 82, 82, 0.1);
+  padding: 10px;
+  border-radius: 8px;
+  border-left: 3px solid #ff5252;
 }
 
 .connect-button {
-  background-color: #646cff !important;
+  background-color: #6c5ce7 !important;
   width: 100%;
   margin-bottom: 1rem;
   font-size: 1.2em !important;
 }
 
 .connect-button:hover {
-  background-color: #535bf2 !important;
+  background-color: #5549c0 !important;
 }
 
 .dev-banner {
@@ -132,15 +143,20 @@
 
 .action-button {
   width: 100%;
+  background-color: #6c5ce7 !important;
+}
+
+.action-button:hover {
+  background-color: #5549c0 !important;
 }
 
 .refill-toggle-button {
-  background-color: #4CAF50 !important;
+  background-color: #4c6fe7 !important;
   width: 100%;
 }
 
 .refill-toggle-button:hover {
-  background-color: #45a049 !important;
+  background-color: #3a5cd9 !important;
 }
 
 .refill-container {
@@ -149,44 +165,44 @@
   gap: 0.5rem;
   margin-top: 1rem;
   padding: 1rem;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(30, 30, 30, 0.8);
   border-radius: 8px;
 }
 
 .refill-input {
   padding: 0.6em 1.2em;
   border-radius: 8px;
-  border: 1px solid #646cff;
-  background: transparent;
-  color: inherit;
+  border: 1px solid #6c5ce7;
+  background: rgba(20, 20, 20, 0.8);
+  color: #ffffff;
   font-size: 1em;
   font-family: inherit;
 }
 
 .refill-input:focus {
   outline: none;
-  border-color: #535bf2;
+  border-color: #5549c0;
 }
 
 .refill-button {
-  background-color: #4CAF50 !important;
+  background-color: #4c6fe7 !important;
 }
 
 .refill-button:hover {
-  background-color: #45a049 !important;
+  background-color: #3a5cd9 !important;
 }
 
 .refill-button:disabled {
-  background-color: #cccccc !important;
+  background-color: #333333 !important;
   cursor: not-allowed;
 }
 
 .info-container {
-  background: rgba(100, 108, 255, 0.08);
+  background: rgba(30, 30, 30, 0.8);
   padding: 1.5rem;
   border-radius: 12px;
   margin-bottom: 2rem;
-  border: 1px solid rgba(100, 108, 255, 0.2);
+  border: 1px solid rgba(108, 92, 231, 0.3);
 }
 
 .network-info {
@@ -196,7 +212,7 @@
 }
 
 .network-badge {
-  background-color: #646cff;
+  background-color: #6c5ce7;
   color: white;
   padding: 0.2rem 0.6rem;
   border-radius: 12px;
@@ -210,36 +226,36 @@
 }
 
 .cooldown-warning {
-  color: #ff6b6b;
+  color: #ff9800;
   font-weight: 600;
   padding: 0.5rem;
   margin-top: 0.5rem !important;
-  background: rgba(255, 107, 107, 0.1);
+  background: rgba(255, 152, 0, 0.1);
   border-radius: 8px;
-  border: 1px solid rgba(255, 107, 107, 0.3);
+  border: 1px solid rgba(255, 152, 0, 0.3);
 }
 
 .update-cooldown-button {
   margin-top: 0.75rem !important;
-  background-color: #646cff !important;
+  background-color: #6c5ce7 !important;
   width: 100%;
   font-size: 0.9rem !important;
   transition: all 0.2s ease;
 }
 
 .update-cooldown-button:hover {
-  background-color: #535bf2 !important;
+  background-color: #5549c0 !important;
   transform: translateY(-2px);
 }
 
 .withdrawal-count {
   font-size: 1.1rem !important;
   font-weight: 600;
-  color: #646cff;
+  color: #8670ff;
 }
 
 .withdrawal-count .count {
-  background: #646cff;
+  background: #6c5ce7;
   color: white;
   padding: 0.2rem 0.6rem;
   border-radius: 12px;
@@ -248,16 +264,20 @@
 
 .messages-container {
   margin: 2rem 0;
+  background: rgba(30, 30, 30, 0.8);
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid rgba(108, 92, 231, 0.3);
 }
 
 .messages-container h3 {
-  color: #646cff;
+  color: #8670ff;
   margin-bottom: 0.5rem;
   font-size: 1.3rem;
 }
 
 .signature-info {
-  color: #888;
+  color: #ccc;
   font-size: 0.9rem;
   margin-bottom: 0.5rem;
 }
@@ -283,13 +303,13 @@
 }
 
 .progress-step.current {
-  background-color: #646cff;
-  box-shadow: 0 0 10px rgba(100, 108, 255, 0.5);
+  background-color: #6c5ce7;
+  box-shadow: 0 0 10px rgba(108, 92, 231, 0.5);
   transform: scale(1.1);
 }
 
 .progress-step.completed {
-  background-color: #4CAF50;
+  background-color: #4cd137;
 }
 
 .progress-line {
@@ -301,11 +321,11 @@
 
 .current-message {
   padding: 1.5rem;
-  background: rgba(100, 108, 255, 0.1);
-  border: 1px solid #646cff;
+  background: rgba(40, 40, 40, 0.7);
+  border: 1px solid #6c5ce7;
   border-radius: 12px;
   transition: all 0.3s ease;
-  box-shadow: 0 4px 20px rgba(100, 108, 255, 0.2);
+  box-shadow: 0 4px 20px rgba(108, 92, 231, 0.2);
 }
 
 .message-content {
@@ -329,17 +349,23 @@
 
 .expected-message p {
   font-size: 0.9rem !important;
-  color: #ff6b6b !important;
+  color: #ff8787 !important;
 }
 
 .message-highlight {
   margin-top: 1rem;
-  color: #646cff;
+  background-color: #6c5ce7;
+  color: white;
   font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  animation: pulse 2s infinite;
+  padding: 12px;
+  border-radius: 8px;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(108, 92, 231, 0.3);
+}
+
+.message-highlight span {
+  font-weight: bold;
+  font-size: 1.05rem;
 }
 
 @keyframes pulse {
@@ -365,7 +391,7 @@
 
 .cooldown-info {
   font-weight: 600;
-  color: #646cff;
+  color: #8670ff;
 }
 
 .cooldown-info-container {
@@ -377,8 +403,8 @@
 
 .refresh-cooldown-button {
   background-color: transparent !important;
-  color: #646cff;
-  border: 1px solid #646cff !important;
+  color: #6c5ce7;
+  border: 1px solid #6c5ce7 !important;
   border-radius: 50% !important;
   width: 28px !important;
   height: 28px !important;
@@ -391,7 +417,7 @@
 }
 
 .refresh-cooldown-button:hover {
-  background-color: rgba(100, 108, 255, 0.1) !important;
+  background-color: rgba(108, 92, 231, 0.1) !important;
   transform: rotate(180deg);
 }
 
@@ -405,7 +431,7 @@
 
 .cooldown-progress-bar {
   height: 100%;
-  background-color: #4CAF50;
+  background-color: #4cd137;
   border-radius: 4px;
   transition: width 1s ease;
 }
@@ -415,8 +441,8 @@
 }
 
 .footer-refill-button {
-  background-color: rgba(255, 255, 255, 0.1) !important;
-  color: #888;
+  background-color: rgba(108, 92, 231, 0.2) !important;
+  color: #a8a8a8;
   border: 1px solid #444 !important;
   padding: 0.5rem 1rem;
   border-radius: 6px;
@@ -425,7 +451,7 @@
 }
 
 .footer-refill-button:hover {
-  background-color: rgba(255, 255, 255, 0.2) !important;
+  background-color: rgba(108, 92, 231, 0.3) !important;
   color: #fff;
   transform: translateY(-2px);
 }
@@ -441,29 +467,31 @@
 .server-info {
   margin-top: 12px;
   font-size: 0.9rem;
-  color: #666;
-  background-color: #f0f0f0;
+  color: #aaa;
+  background-color: rgba(30, 30, 30, 0.8);
   padding: 8px 12px;
   border-radius: 6px;
-  border-left: 3px solid #3498db;
+  border-left: 3px solid #6c5ce7;
 }
 
 .server-info p {
   margin: 0;
+  font-size: 0.9rem !important;
 }
 
 .first-withdrawal-info {
   margin: 12px 0;
   padding: 12px 16px;
-  background-color: #e7f5ff;
+  background-color: rgba(30, 30, 30, 0.8);
   border-radius: 8px;
-  border-left: 4px solid #0099ff;
+  border-left: 4px solid #6c5ce7;
   font-size: 0.9rem;
 }
 
 .first-withdrawal-info p {
   margin: 0 0 6px;
   line-height: 1.4;
+  color: #ddd;
 }
 
 .first-withdrawal-info p:last-child {
@@ -471,12 +499,12 @@
 }
 
 .success-message {
-  background-color: #d4edda;
-  color: #155724;
+  background-color: rgba(76, 209, 55, 0.1);
+  color: #4cd137;
   padding: 10px 15px;
   margin: 15px 0;
   border-radius: 6px;
-  border-left: 4px solid #28a745;
+  border-left: 4px solid #4cd137;
   font-size: 0.95rem;
   animation: fadeInOut 5s forwards;
 }

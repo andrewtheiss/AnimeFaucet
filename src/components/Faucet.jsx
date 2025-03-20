@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ethers } from 'ethers';
 import { FAUCET_ABI, NETWORKS, WITHDRAWAL_MESSAGES } from '../constants/contracts';
+import animecoinIcon from '../assets/animecoin.png';
+import animeBackground from '../assets/anime.webp';
 
 // Define constants to match contract
 const COOLDOWN_PERIOD = 450; // 7.5 minutes in seconds (match contract)
@@ -23,6 +25,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   const [expectedMessage, setExpectedMessage] = useState('');
   const [updatingCooldown, setUpdatingCooldown] = useState(false);
   const [lastRecipient, setLastRecipient] = useState('');
+  const [timerInitialized, setTimerInitialized] = useState(false);
 
   const networkConfig = isDev ? NETWORKS.sepolia : NETWORKS.animechain;
 
@@ -177,25 +180,6 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
     }
   };
 
-  useEffect(() => {
-    const timer = setInterval(() => updateInfo(account, contract), 5000);
-    updateInfo(account, contract);
-    return () => clearInterval(timer);
-  }, [contract]);
-
-  // Update cooldown time every second based on last withdrawal time
-  useEffect(() => {
-    const updateCooldownTimer = () => {
-      if (lastWithdrawal !== '0') {
-        const calculatedCooldown = calculateCooldown();
-        setCooldown(calculatedCooldown);
-      }
-    };
-    
-    const timer = setInterval(updateCooldownTimer, 1000);
-    return () => clearInterval(timer);
-  }, [lastWithdrawal]);
-
   // Update user information when account changes
   useEffect(() => {
     if (account && contract) {
@@ -203,6 +187,113 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
       updateInfo(account, contract);
     }
   }, [account]);
+
+  // Separate effect for blockchain data fetching
+  useEffect(() => {
+    const timer = setInterval(() => {
+      if (contract) {
+        // Don't update cooldown here to avoid flashing
+        updateBalanceAndUserInfo();
+      }
+    }, 5000);
+    return () => clearInterval(timer);
+  }, [contract, account]);
+
+  // New method to update balance and user info without modifying cooldown
+  const updateBalanceAndUserInfo = async () => {
+    if (!contract) return;
+    
+    try {
+      console.log("Updating faucet balance and user info...");
+      const balance = await contract.get_balance();
+      setBalance(ethers.formatEther(balance));
+      
+      if (account) {
+        console.log("Fetching data for account:", account);
+        const nonce = await contract.get_nonce(account);
+        setNonce(nonce.toString());
+        
+        const count = await contract.get_withdrawal_count(account);
+        setWithdrawalCount(Number(count));
+        
+        try {
+          const message = await contract.get_expected_message(account);
+          setExpectedMessage(message);
+        } catch (msgErr) {
+          console.error("Error getting expected message:", msgErr);
+          const fallbackMessage = WITHDRAWAL_MESSAGES[withdrawalCount] || "";
+          setExpectedMessage(fallbackMessage);
+        }
+      }
+    } catch (err) {
+      console.error('Error updating balance and user info:', err);
+    }
+  };
+
+  // Initialize cooldown timer once
+  useEffect(() => {
+    const initializeCooldown = async () => {
+      if (!contract || timerInitialized) return;
+      
+      try {
+        // Get the last withdrawal timestamp
+        const lastWithdrawalTime = await contract.last_global_withdrawal();
+        setLastWithdrawal(lastWithdrawalTime.toString());
+        
+        // Calculate initial cooldown
+        const calculatedCooldown = calculateCooldown();
+        setCooldown(calculatedCooldown);
+        
+        // Get the last recipient
+        try {
+          const recipient = await contract.last_recipient();
+          setLastRecipient(recipient);
+        } catch (recipientErr) {
+          console.error("Error getting last recipient:", recipientErr);
+        }
+        
+        setTimerInitialized(true);
+      } catch (err) {
+        console.error("Error initializing cooldown:", err);
+      }
+    };
+    
+    initializeCooldown();
+  }, [contract, timerInitialized]);
+
+  // Update cooldown every second locally without fetching from blockchain
+  useEffect(() => {
+    if (!timerInitialized) return;
+    
+    const updateCooldownTimer = () => {
+      setCooldown(prevCooldown => {
+        const currentCooldown = Number(prevCooldown);
+        if (currentCooldown <= 0) return '0';
+        return (currentCooldown - 1).toString();
+      });
+    };
+    
+    const timer = setInterval(updateCooldownTimer, 1000);
+    return () => clearInterval(timer);
+  }, [timerInitialized]);
+
+  // After successful withdrawal, reset the cooldown timer
+  const resetCooldownAfterWithdrawal = async () => {
+    try {
+      const lastWithdrawalTime = await contract.last_global_withdrawal();
+      setLastWithdrawal(lastWithdrawalTime.toString());
+      setCooldown(COOLDOWN_PERIOD.toString());
+      
+      try {
+        const recipient = await contract.last_recipient();
+        setLastRecipient(recipient);
+      } catch (recipientErr) {
+        console.error("Error getting last recipient:", recipientErr);
+      }
+    } catch (err) {
+      console.error("Error resetting cooldown:", err);
+    }
+  };
 
   // Update the onConnectionUpdate prop whenever account changes
   useEffect(() => {
@@ -265,7 +356,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
       // For first withdrawal (withdrawalCount == 0), use server API
       if (withdrawalCount === 0) {
         // Determine server URL based on current network
-        const serverUrl = isDev ? 'http://localhost:5000' : 'http://localhost:5000' ; //'http://45.33.62.126:5000';
+        const serverUrl = isDev ? 'http://localhost:5000' : 'https://faucet.animechain.dev';
         console.log(`Using server at ${serverUrl} for first withdrawal`);
         
         try {
@@ -305,6 +396,9 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           console.log("Transaction hash:", result.tx_hash);
           setSuccessMessage(`Server processed your request! Transaction: ${result.tx_hash.substring(0, 10)}...`);
           
+          // Reset cooldown after successful withdrawal
+          await resetCooldownAfterWithdrawal();
+          
           // Clear success message after 5 seconds
           setTimeout(() => setSuccessMessage(''), 5000);
         } catch (fetchError) {
@@ -322,9 +416,12 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
         console.log("Transaction submitted:", tx.hash);
         await tx.wait();
         console.log("Transaction confirmed!");
+        
+        // Reset cooldown after successful withdrawal
+        await resetCooldownAfterWithdrawal();
       }
       
-      await updateInfo(account, contract);
+      await updateBalanceAndUserInfo();
     } catch (err) {
       console.error("Withdrawal error:", err);
       setError(err.message || "Failed to withdraw. Check console for details.");
@@ -381,8 +478,10 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   };
 
   return (
-    <div className="faucet-container">
-      {isDev && <div className="dev-banner">Development Mode - Using Sepolia Testnet</div>}
+    <div className="faucet-container dark-theme" style={{backgroundImage: `url(${animeBackground})`, backgroundSize: 'cover', backgroundPosition: 'center'}}>
+      <div className="logo-container">
+        <img src={animecoinIcon} alt="Animecoin Logo" className="animecoin-logo" />
+      </div>
       {!account ? (
         <button onClick={connectWallet} disabled={loading} className="connect-button">
           {loading ? 'Connecting...' : `Connect to ${networkConfig.chainName}`}
@@ -395,48 +494,36 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
             </div>
             <p className="account-info">Connected Account: {account}</p>
             <p className="balance-info">Faucet Balance: {balance} {networkConfig.nativeCurrency.symbol}</p>
-            {Number(cooldown) > 0 ? (
+            
+            {/* Always show the cooldown container regardless of cooldown value */}
+            <div className="cooldown-info-container">
+              <p className="cooldown-info">Global cooldown: {formatCooldown()}</p>
+              <button 
+                onClick={refreshCooldown}
+                className="refresh-cooldown-button"
+                title="Refresh cooldown timer"
+                disabled={updatingCooldown}
+              >
+                {updatingCooldown ? '…' : '⟳'}
+              </button>
+            </div>
+            
+            {/* Only show progress bar if cooldown > 0 */}
+            {Number(cooldown) > 0 && (
               <>
-                <div className="cooldown-info-container no-refresh">
-                  <p className="cooldown-info">Global cooldown: {formatCooldown()}</p>
-                </div>
                 <div className="cooldown-progress-container">
                   <div className="cooldown-progress-bar" style={{ width: `${cooldownPercentage()}%` }}></div>
                 </div>
                 <p className="cooldown-warning">The faucet has a global cooldown - all users must wait until the timer completes.</p>
-                {lastRecipient && (
-                  <p className="last-recipient">
-                    Last recipient: <span className="address">{lastRecipient.substring(0, 6)}...{lastRecipient.substring(lastRecipient.length - 4)}</span>
-                  </p>
-                )}
-                <button 
-                  onClick={refreshCooldown}
-                  className="update-cooldown-button"
-                  disabled={updatingCooldown}
-                >
-                  {updatingCooldown ? 'Updating...' : 'Update Cooldown Timer'}
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="cooldown-info-container">
-                  <p className="cooldown-info">Global cooldown: {formatCooldown()}</p>
-                  <button 
-                    onClick={refreshCooldown}
-                    className="refresh-cooldown-button"
-                    title="Refresh cooldown timer"
-                    disabled={updatingCooldown}
-                  >
-                    {updatingCooldown ? '…' : '⟳'}
-                  </button>
-                </div>
-                {lastRecipient && (
-                  <p className="last-recipient">
-                    Last recipient: <span className="address">{lastRecipient.substring(0, 6)}...{lastRecipient.substring(lastRecipient.length - 4)}</span>
-                  </p>
-                )}
               </>
             )}
+            
+            {lastRecipient && (
+              <p className="last-recipient">
+                Last recipient: <span className="address">{lastRecipient.substring(0, 6)}...{lastRecipient.substring(lastRecipient.length - 4)}</span>
+              </p>
+            )}
+            
             <p className="withdrawal-count">
               Withdrawals completed: <span className="count">{withdrawalCount}</span> / 3
             </p>
@@ -467,7 +554,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
                     </div>
                   )}
                   <div className="message-highlight">
-                    <span>✍️ Sign this message to receive 0.1 tokens</span>
+                    <span>Sign the following message to receive 0.1 Anime Coin:</span>
                   </div>
                   {withdrawalCount === 0 && (
                     <div className="server-info">
@@ -515,6 +602,337 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           {successMessage && <p className="success-message">{successMessage}</p>}
         </div>
       )}
+
+      <style jsx>{`
+        .faucet-container {
+          background-color: #121212;
+          color: #ffffff;
+          padding: 20px;
+          border-radius: 10px;
+          box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
+          width: 100%;
+          max-width: 600px;
+          margin: 0 auto;
+          position: relative;
+          z-index: 1;
+        }
+        
+        .faucet-container::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          background-color: rgba(18, 18, 18, 0.85);
+          border-radius: 10px;
+          z-index: -1;
+        }
+        
+        .logo-container {
+          text-align: center;
+          margin-bottom: 25px;
+        }
+        
+        .animecoin-logo {
+          width: 100px;
+          height: auto;
+        }
+        
+        .connect-button {
+          background-color: #6c5ce7;
+          color: white;
+          padding: 12px 20px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 16px;
+          width: 100%;
+          font-weight: bold;
+          transition: background-color 0.3s;
+        }
+        
+        .connect-button:hover {
+          background-color: #5549c0;
+        }
+        
+        .connect-button:disabled {
+          background-color: #45397a;
+          cursor: not-allowed;
+        }
+        
+        .info-container {
+          background-color: #1e1e1e;
+          padding: 15px;
+          border-radius: 8px;
+          margin-bottom: 20px;
+          border: 1px solid #333;
+        }
+        
+        .network-info {
+          display: flex;
+          justify-content: flex-end;
+          margin-bottom: 10px;
+        }
+        
+        .network-badge {
+          background-color: #6c5ce7;
+          padding: 5px 10px;
+          border-radius: 12px;
+          font-size: 14px;
+          font-weight: bold;
+        }
+        
+        .account-info, .balance-info, .cooldown-info, .last-recipient, .withdrawal-count {
+          margin: 8px 0;
+          font-size: 14px;
+        }
+        
+        .address, .count {
+          color: #6c5ce7;
+          font-weight: bold;
+        }
+        
+        .cooldown-info-container {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+        }
+        
+        .refresh-cooldown-button {
+          background-color: transparent;
+          color: #6c5ce7;
+          border: 1px solid #6c5ce7;
+          border-radius: 50%;
+          width: 30px;
+          height: 30px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          cursor: pointer;
+          transition: all 0.3s;
+        }
+        
+        .refresh-cooldown-button:hover {
+          background-color: #6c5ce7;
+          color: white;
+        }
+        
+        .refresh-cooldown-button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        
+        .cooldown-progress-container {
+          width: 100%;
+          height: 8px;
+          background-color: #333;
+          border-radius: 4px;
+          overflow: hidden;
+          margin: 10px 0;
+        }
+        
+        .cooldown-progress-bar {
+          height: 100%;
+          background-color: #6c5ce7;
+          border-radius: 4px;
+          transition: width 1s linear;
+        }
+        
+        .cooldown-warning {
+          font-size: 12px;
+          color: #ff9800;
+          margin-top: 5px;
+        }
+        
+        .messages-container {
+          background-color: #1e1e1e;
+          padding: 15px;
+          border-radius: 8px;
+          margin-bottom: 20px;
+          border: 1px solid #333;
+        }
+        
+        .messages-container h3 {
+          margin-top: 0;
+          color: #6c5ce7;
+          font-size: 18px;
+        }
+        
+        .signature-info {
+          font-size: 14px;
+          color: #aaa;
+          margin-bottom: 15px;
+        }
+        
+        .message-progress {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          margin: 20px 0;
+        }
+        
+        .progress-step {
+          width: 30px;
+          height: 30px;
+          border-radius: 50%;
+          background-color: #333;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: white;
+          font-weight: bold;
+        }
+        
+        .progress-step.current {
+          background-color: #6c5ce7;
+        }
+        
+        .progress-step.completed {
+          background-color: #4cd137;
+        }
+        
+        .progress-line {
+          height: 3px;
+          width: 60px;
+          background-color: #333;
+        }
+        
+        .first-withdrawal-info {
+          background-color: #2d2d2d;
+          padding: 10px;
+          border-radius: 6px;
+          margin: 10px 0;
+          border-left: 3px solid #6c5ce7;
+        }
+        
+        .first-withdrawal-info p {
+          margin: 5px 0;
+          font-size: 13px;
+          color: #ddd;
+        }
+        
+        .current-message {
+          background-color: #2d2d2d;
+          padding: 15px;
+          border-radius: 8px;
+          margin: 15px 0;
+        }
+        
+        .message-content p {
+          font-size: 15px;
+          line-height: 1.5;
+        }
+        
+        .expected-message {
+          background-color: #3d3d3d;
+          padding: 10px;
+          border-radius: 6px;
+          margin-top: 10px;
+        }
+        
+        .expected-message p {
+          margin: 0;
+          font-size: 14px;
+        }
+        
+        .message-highlight {
+          background-color: #6c5ce7;
+          padding: 10px;
+          border-radius: 6px;
+          margin-top: 15px;
+          text-align: center;
+        }
+        
+        .message-highlight span {
+          font-weight: bold;
+        }
+        
+        .server-info {
+          margin-top: 10px;
+          font-size: 13px;
+          color: #aaa;
+        }
+        
+        .actions-container {
+          margin-bottom: 15px;
+        }
+        
+        .action-button {
+          background-color: #6c5ce7;
+          color: white;
+          padding: 12px 20px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 16px;
+          width: 100%;
+          font-weight: bold;
+          transition: background-color 0.3s;
+        }
+        
+        .action-button:hover {
+          background-color: #5549c0;
+        }
+        
+        .action-button:disabled {
+          background-color: #45397a;
+          cursor: not-allowed;
+        }
+        
+        .refill-toggle-button {
+          background-color: transparent;
+          color: #6c5ce7;
+          border: none;
+          cursor: pointer;
+          margin-top: 10px;
+          width: 100%;
+          text-align: center;
+        }
+        
+        .refill-container {
+          display: flex;
+          gap: 10px;
+          margin-top: 15px;
+        }
+        
+        .refill-input {
+          flex: 1;
+          padding: 10px;
+          border: 1px solid #333;
+          border-radius: 6px;
+          background-color: #2d2d2d;
+          color: white;
+        }
+        
+        .refill-button {
+          background-color: #6c5ce7;
+          color: white;
+          padding: 10px 15px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          white-space: nowrap;
+        }
+        
+        .error {
+          color: #ff5252;
+          margin-top: 15px;
+          padding: 10px;
+          background-color: rgba(255, 82, 82, 0.1);
+          border-radius: 6px;
+          border-left: 3px solid #ff5252;
+        }
+        
+        .success-message {
+          color: #4cd137;
+          margin-top: 15px;
+          padding: 10px;
+          background-color: rgba(76, 209, 55, 0.1);
+          border-radius: 6px;
+          border-left: 3px solid #4cd137;
+        }
+      `}</style>
     </div>
   );
 }
