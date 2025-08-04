@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
-import { FAUCET_ABI, DEV_FAUCET_ABI, NETWORKS, WITHDRAWAL_MESSAGES, DEV_FAUCET_MESSAGES } from '../constants/contracts';
+import { FAUCET_ABI, DEV_FAUCET_ABI, FAUCET_SERVER_ABI, DEV_FAUCET_SERVER_ABI, NETWORKS, WITHDRAWAL_MESSAGES, DEV_FAUCET_MESSAGES } from '../constants/contracts';
 import animecoinIcon from '../assets/animecoin.png';
 import animeBackground from '../assets/anime.webp';
 

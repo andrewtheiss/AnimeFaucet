@@ -40,6 +40,13 @@ NETWORK_CONFIG = {
         'chain_id': 69000,
         'faucet_address': '0x81AC57b126940a1F946Aed67e5C0F0351d607eAb',
         'backend_address': '0x3aEF475d3FA57790DDEFe79dEBdC46f6A9A48c72'
+    },
+    'devanimechain': {
+        'rpc_url': 'https://testnet-rpc.anime.xyz',
+        'chain_id': 6900,
+        'faucet_address': '0x0000000000000000000000000000000000000000',
+        'backend_address': '0x0000000000000000000000000000000000000000',
+        'block_explorer_url': 'https://explorer-animechain-testnet-i8yja6a1a0.t.conduit.xyz:443'
     }
 }
 
