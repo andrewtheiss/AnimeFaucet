@@ -79,6 +79,18 @@ export const NETWORKS = {
       }
     }
   },
+  testnet: {
+    chainId: '0x1AF4', // 6900 in hex
+    chainName: 'AnimeChain Testnet',
+    nativeCurrency: {
+      name: 'Test Anime',
+      symbol: 'tANIME',
+      decimals: 18
+    },
+    rpcUrls: ['https://rpc-conduit-orbit-deployer-d4pqjb0rle.t.conduit.xyz/'],
+    blockExplorerUrls: ['https://explorer-conduit-orbit-deployer-d4pqjb0rle.t.conduit.xyz/'],
+    iconUrls: [window.location.origin + '/assets/animecoin.png']
+  },
   sepolia: {
     chainId: '0xaa36a7', // 11155111 in hex
     chainName: 'Sepolia',

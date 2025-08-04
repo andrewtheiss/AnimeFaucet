@@ -41,12 +41,13 @@ NETWORK_CONFIG = {
         'faucet_address': '0x81AC57b126940a1F946Aed67e5C0F0351d607eAb',
         'backend_address': '0x3aEF475d3FA57790DDEFe79dEBdC46f6A9A48c72'
     },
-    'devanimechain': {
-        'rpc_url': 'https://testnet-rpc.anime.xyz',
+    'testnet': {
+        'rpc_url': 'https://rpc-conduit-orbit-deployer-d4pqjb0rle.t.conduit.xyz/',
         'chain_id': 6900,
-        'faucet_address': '0x0000000000000000000000000000000000000000',
-        'backend_address': '0x0000000000000000000000000000000000000000',
-        'block_explorer_url': 'https://explorer-animechain-testnet-i8yja6a1a0.t.conduit.xyz:443'
+        'faucet_address': '0x72cF2B84FE3375ed3ca4Ba358637ae9Aa7D654AA',  # DevFaucet address - to be updated
+        'backend_address': '0x5174f3e6F83CF2283b7677829356C8Bc6fCe578f', # DevFaucetServer address - to be updated  
+        'block_explorer_url': 'https://explorer-conduit-orbit-deployer-d4pqjb0rle.t.conduit.xyz/',
+        'faucet_type': 'dev'  # Indicates this uses the dev faucet (proof-of-work)
     }
 }
 
@@ -90,8 +91,14 @@ if not web3_instances:
     logging.critical("No RPC connections available. Server cannot start.")
     raise ConnectionError("No RPC connections available. Server cannot start.")
 
-# Replace with your actual contract ABIs
-faucet_abi = [{"type":"event","name":"Withdrawal","inputs":[{"name":"recipient","type":"address","components":None,"internalType":None,"indexed":True},{"name":"amount","type":"uint256","components":None,"internalType":None,"indexed":False},{"name":"timestamp","type":"uint256","components":None,"internalType":None,"indexed":False},{"name":"withdrawal_count","type":"uint256","components":None,"internalType":None,"indexed":False}],"anonymous":False},{"type":"event","name":"Deposit","inputs":[{"name":"sender","type":"address","components":None,"internalType":None,"indexed":True},{"name":"amount","type":"uint256","components":None,"internalType":None,"indexed":False},{"name":"timestamp","type":"uint256","components":None,"internalType":None,"indexed":False}],"anonymous":False},{"type":"fallback","stateMutability":"payable"},{"type":"function","name":"deposit","stateMutability":"payable","inputs":[],"outputs":[]},{"type":"function","name":"withdraw","stateMutability":"nonpayable","inputs":[{"name":"_v","type":"uint8","components":None,"internalType":None},{"name":"_r","type":"bytes32","components":None,"internalType":None},{"name":"_s","type":"bytes32","components":None,"internalType":None},{"name":"_message","type":"string","components":None,"internalType":None}],"outputs":[]},{"type":"function","name":"withdrawFor","stateMutability":"nonpayable","inputs":[{"name":"_user","type":"address","components":None,"internalType":None},{"name":"_v","type":"uint8","components":None,"internalType":None},{"name":"_r","type":"bytes32","components":None,"internalType":None},{"name":"_s","type":"bytes32","components":None,"internalType":None},{"name":"_message","type":"string","components":None,"internalType":None}],"outputs":[]},{"type":"function","name":"addBackend","stateMutability":"nonpayable","inputs":[{"name":"_backend","type":"address","components":None,"internalType":None}],"outputs":[]},{"type":"function","name":"removeBackend","stateMutability":"nonpayable","inputs":[{"name":"_backend","type":"address","components":None,"internalType":None}],"outputs":[]},{"type":"function","name":"transferOwnership","stateMutability":"nonpayable","inputs":[{"name":"_newOwner","type":"address","components":None,"internalType":None}],"outputs":[]},{"type":"function","name":"get_balance","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256","components":None,"internalType":None}]},{"type":"function","name":"time_until_next_withdrawal","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256","components":None,"internalType":None}]},{"type":"function","name":"get_nonce","stateMutability":"view","inputs":[{"name":"_user","type":"address","components":None,"internalType":None}],"outputs":[{"name":"","type":"uint256","components":None,"internalType":None}]},{"type":"function","name":"get_withdrawal_count","stateMutability":"view","inputs":[{"name":"_user","type":"address","components":None,"internalType":None}],"outputs":[{"name":"","type":"uint256","components":None,"internalType":None}]},{"type":"function","name":"get_expected_message","stateMutability":"view","inputs":[{"name":"_user","type":"address","components":None,"internalType":None}],"outputs":[{"name":"","type":"string","components":None,"internalType":None}]},{"type":"function","name":"owner","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address","components":None,"internalType":None}]},{"type":"function","name":"authorizedBackends","stateMutability":"view","inputs":[{"name":"arg0","type":"address","components":None,"internalType":None}],"outputs":[{"name":"","type":"bool","components":None,"internalType":None}]},{"type":"function","name":"last_global_withdrawal","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint256","components":None,"internalType":None}]},{"type":"function","name":"last_recipient","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address","components":None,"internalType":None}]},{"type":"function","name":"nonce","stateMutability":"view","inputs":[{"name":"arg0","type":"address","components":None,"internalType":None}],"outputs":[{"name":"","type":"uint256","components":None,"internalType":None}]},{"type":"function","name":"withdrawal_count","stateMutability":"view","inputs":[{"name":"arg0","type":"address","components":None,"internalType":None}],"outputs":[{"name":"","type":"uint256","components":None,"internalType":None}]},{"type":"constructor","stateMutability":"nonpayable","inputs":[]}];
+# Updated contract ABIs for mainnet and testnet faucets
+# Mainnet Faucet ABI (original faucet with admin functions)
+faucet_abi = [{"name": "Withdrawal", "inputs": [{"name": "recipient", "type": "address", "indexed": True}, {"name": "amount", "type": "uint256", "indexed": False}, {"name": "timestamp", "type": "uint256", "indexed": False}, {"name": "withdrawal_count", "type": "uint256", "indexed": False}], "anonymous": False, "type": "event"}, {"name": "Deposit", "inputs": [{"name": "sender", "type": "address", "indexed": True}, {"name": "amount", "type": "uint256", "indexed": False}, {"name": "timestamp", "type": "uint256", "indexed": False}], "anonymous": False, "type": "event"}, {"stateMutability": "payable", "type": "fallback"}, {"stateMutability": "payable", "type": "function", "name": "deposit", "inputs": [], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "withdraw", "inputs": [{"name": "_v", "type": "uint8"}, {"name": "_r", "type": "bytes32"}, {"name": "_s", "type": "bytes32"}, {"name": "_message", "type": "string"}], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "withdrawFor", "inputs": [{"name": "_user", "type": "address"}, {"name": "_v", "type": "uint8"}, {"name": "_r", "type": "bytes32"}, {"name": "_s", "type": "bytes32"}, {"name": "_message", "type": "string"}], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "addBackend", "inputs": [{"name": "_backend", "type": "address"}], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "removeBackend", "inputs": [{"name": "_backend", "type": "address"}], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "transferOwnership", "inputs": [{"name": "_newOwner", "type": "address"}], "outputs": []}, {"stateMutability": "view", "type": "function", "name": "get_balance", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "time_until_next_withdrawal", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_nonce", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_withdrawal_count", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_expected_message", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "string"}]}, {"stateMutability": "nonpayable", "type": "function", "name": "emergencyWithdrawAll", "inputs": [], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "emergencyWithdraw", "inputs": [{"name": "_amount", "type": "uint256"}], "outputs": []}, {"stateMutability": "view", "type": "function", "name": "owner", "inputs": [], "outputs": [{"name": "", "type": "address"}]}, {"stateMutability": "view", "type": "function", "name": "authorizedBackends", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "bool"}]}, {"stateMutability": "view", "type": "function", "name": "last_global_withdrawal", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "last_recipient", "inputs": [], "outputs": [{"name": "", "type": "address"}]}, {"stateMutability": "view", "type": "function", "name": "nonce", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "withdrawal_count", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "nonpayable", "type": "constructor", "inputs": [], "outputs": []}];
+
+# Testnet DevFaucet ABI (proof-of-work faucet with admin functions)
+dev_faucet_abi = [{"name": "Withdrawal", "inputs": [{"name": "recipient", "type": "address", "indexed": True}, {"name": "amount", "type": "uint256", "indexed": False}, {"name": "block_time", "type": "uint256", "indexed": False}, {"name": "withdrawal_count", "type": "uint256", "indexed": False}, {"name": "withdrawal_index", "type": "uint256", "indexed": False}, {"name": "difficulty_target", "type": "uint256", "indexed": False}, {"name": "chosen_block", "type": "uint256", "indexed": False}, {"name": "proof_hash", "type": "bytes32", "indexed": False}], "anonymous": False, "type": "event"}, {"name": "Deposit", "inputs": [{"name": "sender", "type": "address", "indexed": True}, {"name": "amount", "type": "uint256", "indexed": False}, {"name": "block_time", "type": "uint256", "indexed": False}], "anonymous": False, "type": "event"}, {"stateMutability": "payable", "type": "fallback"}, {"stateMutability": "payable", "type": "function", "name": "deposit", "inputs": [], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "withdraw", "inputs": [{"name": "_chosen_block_hash", "type": "bytes32"}, {"name": "_withdrawal_index", "type": "uint256"}, {"name": "_ip_address", "type": "bytes32"}, {"name": "_nonce", "type": "uint256"}, {"name": "_v", "type": "uint8"}, {"name": "_r", "type": "bytes32"}, {"name": "_s", "type": "bytes32"}], "outputs": []}, {"stateMutability": "view", "type": "function", "name": "get_balance", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "time_until_next_withdrawal", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_nonce", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_withdrawal_count", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_expected_message", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "string"}]}, {"stateMutability": "view", "type": "function", "name": "get_next_withdrawal_index", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_next_withdrawal_amount", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_difficulty_target", "inputs": [{"name": "_withdrawal_index", "type": "uint256"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "verify_proof_of_work", "inputs": [{"name": "_user", "type": "address"}, {"name": "_chosen_block_hash", "type": "bytes32"}, {"name": "_withdrawal_index", "type": "uint256"}, {"name": "_ip_address", "type": "bytes32"}, {"name": "_nonce", "type": "uint256"}], "outputs": [{"name": "", "type": "bool"}]}, {"stateMutability": "view", "type": "function", "name": "get_ip_address_hash", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "bytes32"}]}, {"stateMutability": "view", "type": "function", "name": "get_first_request_time", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_last_successful_block", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "pure", "type": "function", "name": "validate_hash", "inputs": [{"name": "_user", "type": "address"}, {"name": "_chosen_block_hash", "type": "bytes32"}, {"name": "_withdrawal_index", "type": "uint256"}, {"name": "_ip_address", "type": "bytes32"}, {"name": "_nonce", "type": "uint256"}], "outputs": [{"name": "", "type": "bool"}]}, {"stateMutability": "view", "type": "function", "name": "time_until_daily_reset", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_user_daily_status", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}, {"name": "", "type": "uint256"}, {"name": "", "type": "uint256"}, {"name": "", "type": "uint256"}]}, {"stateMutability": "nonpayable", "type": "function", "name": "transferOwnership", "inputs": [{"name": "_newOwner", "type": "address"}], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "emergencyWithdrawAll", "inputs": [], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "emergencyWithdraw", "inputs": [{"name": "_amount", "type": "uint256"}], "outputs": []}, {"stateMutability": "view", "type": "function", "name": "owner", "inputs": [], "outputs": [{"name": "", "type": "address"}]}, {"stateMutability": "view", "type": "function", "name": "last_global_withdrawal", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "nonce", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "withdrawal_count", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "first_request_time", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "ip_address_hash", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "bytes32"}]}, {"stateMutability": "view", "type": "function", "name": "last_successful_block", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "nonpayable", "type": "constructor", "inputs": [], "outputs": []}];
+
+# Backend server ABIs (unchanged)
 backend_abi = [{"type":"function","name":"deposit","stateMutability":"payable","inputs":[],"outputs":[]},{"type":"function","name":"requestWithdrawal","stateMutability":"nonpayable","inputs":[{"name":"_faucet","type":"address","components":None,"internalType":None},{"name":"_user","type":"address","components":None,"internalType":None},{"name":"_v","type":"uint8","components":None,"internalType":None},{"name":"_r","type":"bytes32","components":None,"internalType":None},{"name":"_s","type":"bytes32","components":None,"internalType":None},{"name":"_message","type":"string","components":None,"internalType":None}],"outputs":[]},{"type":"function","name":"owner","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"address","components":None,"internalType":None}]},{"type":"constructor","stateMutability":"nonpayable","inputs":[]}];
 
 # Constants (adjust based on your contract)
@@ -162,40 +169,52 @@ def request_withdrawal():
             logging.error(f"Invalid signature format: v={v}, r={r[:10]}..., s={s[:10]}...")
             return jsonify({'error': 'Invalid signature components format'}), 400
 
-        # Contract instances
+        # Contract instances - choose appropriate ABI based on faucet type
         try:
-            faucet_contract = web3.eth.contract(address=faucet_address, abi=faucet_abi)
+            # Determine if this is a dev faucet (testnet)
+            is_dev_faucet = config.get('faucet_type') == 'dev'
+            chosen_faucet_abi = dev_faucet_abi if is_dev_faucet else faucet_abi
+            
+            faucet_contract = web3.eth.contract(address=faucet_address, abi=chosen_faucet_abi)
             backend_contract = web3.eth.contract(address=backend_address, abi=backend_abi)
+            
+            logging.info(f"Using {'dev faucet' if is_dev_faucet else 'regular faucet'} ABI for network {network}")
         except Exception as e:
             logging.error(f"Error creating contract instances: {str(e)}")
             return jsonify({'error': 'Contract initialization error'}), 500
 
-        # Off-chain checks
+        # Off-chain checks - different logic for dev faucet vs regular faucet
         try:
-            withdrawal_count = faucet_contract.functions.get_withdrawal_count(user_address).call()
-            logging.info(f"User withdrawal count: {withdrawal_count}")
-            if withdrawal_count > 0:
-                return jsonify({'error': 'User has already withdrawn'}), 400
-                
-            balance = faucet_contract.functions.get_balance().call()
-            logging.info(f"Faucet balance: {balance}")
-            if balance < WITHDRAW_AMOUNT:
-                return jsonify({'error': 'Insufficient faucet balance'}), 400
-                
-            # Only log a warning if there's not enough for gas reserve
-            if balance < WITHDRAW_AMOUNT + GAS_RESERVE:
-                logging.warning(f"Faucet balance {balance} is less than withdrawal + gas reserve ({WITHDRAW_AMOUNT + GAS_RESERVE})")
-                
-            expected_message = faucet_contract.functions.get_expected_message(user_address).call()
-            logging.info(f"Expected message: '{expected_message}', Provided message: '{message}'")
-            if message != expected_message:
-                logging.error(f"Message mismatch! Expected: '{expected_message}', Got: '{message}'")
-                # If they're close but not exact, log additional info to help debugging
-                if expected_message.lower() == message.lower():
-                    logging.warning("Messages match when case-insensitive, check for capitalization issues")
-                if expected_message.replace(" ", "") == message.replace(" ", ""):
-                    logging.warning("Messages match when spaces are removed, check for whitespace issues")
-                return jsonify({'error': 'Incorrect message', 'expected': expected_message, 'provided': message}), 400
+            if is_dev_faucet:
+                # For dev faucet, we need to handle the proof-of-work system
+                # But for now, the server only supports regular faucet withdrawFor
+                return jsonify({'error': 'Server-side withdrawals not supported for dev faucet (proof-of-work). Use direct blockchain interaction.'}), 400
+            else:
+                # Regular faucet logic
+                withdrawal_count = faucet_contract.functions.get_withdrawal_count(user_address).call()
+                logging.info(f"User withdrawal count: {withdrawal_count}")
+                if withdrawal_count > 0:
+                    return jsonify({'error': 'User has already withdrawn'}), 400
+                    
+                balance = faucet_contract.functions.get_balance().call()
+                logging.info(f"Faucet balance: {balance}")
+                if balance < WITHDRAW_AMOUNT:
+                    return jsonify({'error': 'Insufficient faucet balance'}), 400
+                    
+                # Only log a warning if there's not enough for gas reserve
+                if balance < WITHDRAW_AMOUNT + GAS_RESERVE:
+                    logging.warning(f"Faucet balance {balance} is less than withdrawal + gas reserve ({WITHDRAW_AMOUNT + GAS_RESERVE})")
+                    
+                expected_message = faucet_contract.functions.get_expected_message(user_address).call()
+                logging.info(f"Expected message: '{expected_message}', Provided message: '{message}'")
+                if message != expected_message:
+                    logging.error(f"Message mismatch! Expected: '{expected_message}', Got: '{message}'")
+                    # If they're close but not exact, log additional info to help debugging
+                    if expected_message.lower() == message.lower():
+                        logging.warning("Messages match when case-insensitive, check for capitalization issues")
+                    if expected_message.replace(" ", "") == message.replace(" ", ""):
+                        logging.warning("Messages match when spaces are removed, check for whitespace issues")
+                    return jsonify({'error': 'Incorrect message', 'expected': expected_message, 'provided': message}), 400
         except Exception as e:
             logging.error(f"Contract check failed for {user_address} on {network}: {str(e)}")
             logging.error(f"Contract addresses - Faucet: {faucet_address}, Backend: {backend_address}")

@@ -28,11 +28,22 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
   const [lastRecipient, setLastRecipient] = useState('');
   const [timerInitialized, setTimerInitialized] = useState(false);
   const [lastTxHash, setLastTxHash] = useState('');
+  const [selectedNetwork, setSelectedNetwork] = useState(network);
+  
+  // Detect localhost for showing server features
+  const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
-  const networkConfig = NETWORKS[network] || NETWORKS.animechain;
-  const isDevFaucet = network === 'sepolia'; // Use devFaucet on Sepolia
+  const networkConfig = NETWORKS[selectedNetwork] || NETWORKS.animechain;
+  const isDevFaucet = selectedNetwork === 'sepolia' || selectedNetwork === 'testnet'; // Use devFaucet on Sepolia or testnet
   const contractABI = isDevFaucet ? DEV_FAUCET_ABI : FAUCET_ABI;
   const explorerUrl = `${networkConfig.blockExplorerUrls[0]}address/${account}`;
+  
+  // Server network mapping for localhost server
+  const getServerNetwork = (uiNetwork) => {
+    if (uiNetwork === 'animechain') return 'animechain'; // mainnet
+    if (uiNetwork === 'testnet') return 'testnet'; // testnet with dev faucet
+    return uiNetwork;
+  };
 
   const formatCooldown = () => {
     const cooldownSeconds = Number(cooldown);
@@ -380,9 +391,10 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
 
       // For first withdrawal (withdrawalCount == 0), use server API (original faucet only)
       if (withdrawalCount === 0 && !isDevFaucet) {
-        // Determine server URL based on current network
-        const serverUrl = network === 'sepolia' ? 'http://localhost:5000' : 'https://faucet.animechain.dev';
-        console.log(`Using server at ${serverUrl} for first withdrawal`);
+        // Determine server URL - use localhost for development, otherwise official server
+        const serverUrl = isLocalhost ? 'http://localhost:5000' : 'https://faucet.animechain.dev';
+        const serverNetwork = getServerNetwork(selectedNetwork);
+        console.log(`Using server at ${serverUrl} for first withdrawal on network ${serverNetwork}`);
         
         try {
           setServerLoading(true);
@@ -392,7 +404,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              network: network,
+              network: serverNetwork,
               user_address: account,
               v: sig.v,
               r: sig.r,
@@ -511,12 +523,96 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
 
   const isTestnet = network === 'sepolia' || network === 'animechain_testnet';
   
+  // Server withdrawal function for localhost only
+  const handleServerWithdraw = async () => {
+    if (!isLocalhost) {
+      setError('Server withdrawals only available on localhost');
+      return;
+    }
+    
+    try {
+      setServerLoading(true);
+      setError('');
+      setSuccessMessage('');
+      
+      const serverNetwork = getServerNetwork(selectedNetwork);
+      console.log(`Making server request for network: ${serverNetwork}`);
+      
+      const response = await fetch('http://localhost:5000/request-withdrawal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          network: serverNetwork,
+          user_address: account,
+          v: 27, // Example values - in real implementation, you'd get these from signing
+          r: '0x0000000000000000000000000000000000000000000000000000000000000000',
+          s: '0x0000000000000000000000000000000000000000000000000000000000000000',
+          message: expectedMessage || (isDevFaucet ? DEV_FAUCET_MESSAGES[0] : WITHDRAWAL_MESSAGES[0])
+        })
+      });
+      
+      const result = await response.json();
+      if (result.error) {
+        throw new Error(result.error);
+      }
+      
+      setSuccessMessage(`Server request sent! Response: ${JSON.stringify(result)}`);
+    } catch (error) {
+      setError(`Server request failed: ${error.message}`);
+    } finally {
+      setServerLoading(false);
+    }
+  };
+
   return (
     <div className="faucet-container dark-theme">
-      {isTestnet && <div className="dev-banner">Testnet Mode - Using {networkConfig.chainName}</div>}
+      {selectedNetwork === 'testnet' && <div className="dev-banner">Testnet Mode - Using {networkConfig.chainName}</div>}
       <div className="logo-container">
         <img src={animecoinIcon} alt="Animecoin Logo" className="animecoin-logo" />
       </div>
+      
+      {/* Network Selection - only show on localhost */}
+      {isLocalhost && (
+        <div className="network-selection">
+          <h3>Network Selection (Development)</h3>
+          <div className="network-buttons">
+            <button 
+              onClick={() => setSelectedNetwork('animechain')}
+              className={`network-button ${selectedNetwork === 'animechain' ? 'active' : ''}`}
+            >
+              Mainnet
+            </button>
+            <button 
+              onClick={() => setSelectedNetwork('testnet')}
+              className={`network-button ${selectedNetwork === 'testnet' ? 'active' : ''}`}
+            >
+              Testnet
+            </button>
+          </div>
+          <p className="network-info-text">
+            Current: {selectedNetwork === 'animechain' ? 'Mainnet (Regular Faucet)' : 'Testnet (Dev Faucet - Proof of Work)'}
+          </p>
+        </div>
+      )}
+      
+      {/* Server Testing - only show on localhost */}
+      {isLocalhost && account && (
+        <div className="server-testing">
+          <h3>Server Testing (Localhost Only)</h3>
+          <button 
+            onClick={handleServerWithdraw}
+            disabled={serverLoading}
+            className="server-test-button"
+          >
+            {serverLoading ? 'Testing Server...' : `Test Server Request (${getServerNetwork(selectedNetwork)})`}
+          </button>
+          <p className="server-info-text">
+            This button sends a test request to your local server (localhost:5000)
+          </p>
+        </div>
+      )}
       {!account ? (
         <button onClick={connectWallet} disabled={loading} className="connect-button">
           {loading ? 'Connecting...' : `Connect to ${networkConfig.chainName}`}
@@ -600,7 +696,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
                   </div>
                   {withdrawalCount === 0 && !isDevFaucet && (
                     <div className="server-info">
-                      <p>📡 First withdrawal will use server API at {network === 'sepolia' ? 'localhost' : 'faucet.animechain.dev'} to pay for gas</p>
+                      <p>📡 First withdrawal will use server API at {isLocalhost ? 'localhost' : 'faucet.animechain.dev'} to pay for gas</p>
                     </div>
                   )}
                   {isDevFaucet && (
@@ -1026,6 +1122,75 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           background-color: rgba(255, 82, 82, 0.1);
           border-radius: 6px;
           border-left: 3px solid #ff5252;
+        }
+        
+        .network-selection, .server-testing {
+          background-color: #1e1e1e;
+          padding: 15px;
+          border-radius: 8px;
+          margin-bottom: 20px;
+          border: 2px solid #ff9800;
+        }
+        
+        .network-selection h3, .server-testing h3 {
+          margin-top: 0;
+          color: #ff9800;
+          font-size: 16px;
+        }
+        
+        .network-buttons {
+          display: flex;
+          gap: 10px;
+          margin: 10px 0;
+        }
+        
+        .network-button {
+          flex: 1;
+          padding: 8px 16px;
+          border: 2px solid #6c5ce7;
+          background-color: transparent;
+          color: #6c5ce7;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: bold;
+          transition: all 0.3s;
+        }
+        
+        .network-button.active {
+          background-color: #6c5ce7;
+          color: white;
+        }
+        
+        .network-button:hover:not(.active) {
+          background-color: rgba(108, 92, 231, 0.1);
+        }
+        
+        .network-info-text, .server-info-text {
+          margin: 10px 0 0 0;
+          font-size: 13px;
+          color: #aaa;
+        }
+        
+        .server-test-button {
+          background-color: #ff9800;
+          color: white;
+          padding: 10px 20px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: bold;
+          width: 100%;
+          transition: background-color 0.3s;
+        }
+        
+        .server-test-button:hover:not(:disabled) {
+          background-color: #f57c00;
+        }
+        
+        .server-test-button:disabled {
+          background-color: #666;
+          cursor: not-allowed;
         }
         
         .success-message {
