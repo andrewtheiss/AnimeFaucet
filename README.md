@@ -43,3 +43,5 @@ If all checks pass, 0.1 token is sent to the user, and the withdrawal count and 
 Subsequent Withdrawals:
 After receiving the first 0.1 token, the user can use it to pay gas and call withdraw directly for the second and third withdrawals, signing MESSAGE_2 and MESSAGE_3 respectively.
 
+# Quite often I install a venv one directory up
+source Environments/vyperenv/bin/activate && cd AnimeFaucet && vyper --version

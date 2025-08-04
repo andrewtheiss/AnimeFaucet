@@ -62,20 +62,21 @@ POW_DIFFICULTY_TARGETS: constant(uint256[8]) = [
 ]
 
 # Specific messages to sign for each withdrawal (in order)
-MESSAGE_1: constant(String[103]) = "Ill use this ANIME coin to build something on ANIME chain and not sell it like a degen."
-MESSAGE_2: constant(String[103]) = "Gonna build more with this ANIME coin, and not ape into a meme coin."
-MESSAGE_3: constant(String[103]) = "Gonna use this ANIME as my last hope for creating something worthwhile.  God help me."
-MESSAGE_4: constant(String[103]) = "This is my second to last ANIME amount today, I promise I'll use it wisely."
-MESSAGE_5: constant(String[103]) = "Gonna use this ANIME as my last hope for creating something worthwhile.  God help me."
-MESSAGE_6: constant(String[103]) = "Gonna use this ANIME as my last hope for creating something worthwhile.  God help me."
-MESSAGE_7: constant(String[103]) = "Gonna use this ANIME as my last hope for creating something worthwhile.  God help me."
-MESSAGE_8: constant(String[103]) = "Gonna use this ANIME as my last hope for creating something worthwhile.  God help me."
+MESSAGE_1: constant(String[103]) = "Ill use this ANIME coin to test building something on ANIME chain testnet."
+MESSAGE_2: constant(String[103]) = "Gonna test more with this ANIME testnet coin."
+MESSAGE_3: constant(String[103]) = "Gonna use this testnet ANIME as fodder to test more c0d3."
+MESSAGE_4: constant(String[103]) = "This is my fourth to last ANIME amount today, I promise I'll use it wisely."
+MESSAGE_5: constant(String[103]) = "How much more testnet ANIME do I need?  MOARRRR."
+MESSAGE_6: constant(String[103]) = "I actually still need more.  I'm probably vibe coding at this point."
+MESSAGE_7: constant(String[103]) = "I still need more testnet ANIME today...  I likely have bugs in my code if I need this much."
+MESSAGE_8: constant(String[103]) = "This is the last testnet ANIME I can request today.  Gonna have to make a new wallet."
 
 # EIP-712 domain constants
 EIP712_DOMAIN_TYPEHASH: constant(bytes32) = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")
 MESSAGE_TYPEHASH: constant(bytes32) = keccak256("FaucetRequest(address recipient,string message,uint256 nonce)")
 
 # Storage variables
+owner: public(address)                            # Owner of the contract
 last_global_withdrawal: public(uint256)  # Tracks the last withdrawal time globally
 nonce: public(HashMap[address, uint256])  # Nonce to prevent replay attacks
 withdrawal_count: public(HashMap[address, uint256])  # Tracks number of withdrawals per user
@@ -98,6 +99,11 @@ event Deposit:
     sender: indexed(address)
     amount: uint256
     block_time: uint256
+
+# Constructor to set the owner
+@deploy
+def __init__():
+    self.owner = msg.sender
 
 # Fallback function to accept native token deposits
 @external
@@ -488,7 +494,7 @@ def get_user_daily_status(_user: address) -> (uint256, uint256, uint256, uint256
     if current_count < MAX_DAILY_WITHDRAWALS:
         # Sum up all remaining withdrawal amounts
         i: uint256 = current_count
-        for j: uint256 in range(8):  # MAX_DAILY_WITHDRAWALS
+        for j: uint256 in range(8):
             if i < MAX_DAILY_WITHDRAWALS:
                 total_remaining_amount += WITHDRAWAL_AMOUNTS[i]
                 i += 1
@@ -508,3 +514,28 @@ def get_user_daily_status(_user: address) -> (uint256, uint256, uint256, uint256
         next_withdrawal_amount = WITHDRAWAL_AMOUNTS[current_count]
     
     return (total_remaining_amount, remaining_withdrawals, time_until_reset, next_withdrawal_amount)
+
+# Function to transfer ownership
+@external
+def transferOwnership(_newOwner: address):
+    assert msg.sender == self.owner, "Only owner"
+    self.owner = _newOwner
+
+# Emergency function to withdraw all funds (admin only)
+@external
+def emergencyWithdrawAll():
+    assert msg.sender == self.owner, "Only owner"
+    assert self.balance > 0, "No funds to withdraw"
+    
+    # Send all contract balance to owner
+    send(self.owner, self.balance)
+
+# Emergency function to withdraw specific amount (admin only)
+@external
+def emergencyWithdraw(_amount: uint256):
+    assert msg.sender == self.owner, "Only owner"
+    assert _amount > 0, "Amount must be greater than 0"
+    assert self.balance >= _amount, "Insufficient contract balance"
+    
+    # Send specified amount to owner
+    send(self.owner, _amount)

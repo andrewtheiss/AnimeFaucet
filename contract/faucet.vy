@@ -258,3 +258,22 @@ def get_expected_message(_user: address) -> String[103]:
     if current_count == 1:
         return MESSAGE_2
     return MESSAGE_3
+
+# Emergency function to withdraw all funds (admin only)
+@external
+def emergencyWithdrawAll():
+    assert msg.sender == self.owner, "Only owner"
+    assert self.balance > 0, "No funds to withdraw"
+    
+    # Send all contract balance to owner
+    send(self.owner, self.balance)
+
+# Emergency function to withdraw specific amount (admin only)
+@external
+def emergencyWithdraw(_amount: uint256):
+    assert msg.sender == self.owner, "Only owner"
+    assert _amount > 0, "Amount must be greater than 0"
+    assert self.balance >= _amount, "Insufficient contract balance"
+    
+    # Send specified amount to owner
+    send(self.owner, _amount)
