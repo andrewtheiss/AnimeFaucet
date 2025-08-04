@@ -1,13 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
-import { FAUCET_ABI, NETWORKS, WITHDRAWAL_MESSAGES } from '../constants/contracts';
+import { FAUCET_ABI, DEV_FAUCET_ABI, NETWORKS, WITHDRAWAL_MESSAGES, DEV_FAUCET_MESSAGES } from '../constants/contracts';
 import animecoinIcon from '../assets/animecoin.png';
 import animeBackground from '../assets/anime.webp';
 
 // Define constants to match contract
 const COOLDOWN_PERIOD = 450; // 7.5 minutes in seconds (match contract)
 
-function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
+function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate }) {
   const [account, setAccount] = useState(null);
   const [provider, setProvider] = useState(null);
   const [contract, setContract] = useState(null);
@@ -29,10 +29,10 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
   const [timerInitialized, setTimerInitialized] = useState(false);
   const [lastTxHash, setLastTxHash] = useState('');
 
-  const networkConfig = isDev ? NETWORKS.sepolia : NETWORKS.animechain;
-  const explorerUrl = isDev 
-    ? `https://sepolia.etherscan.io/address/${account}` 
-    : `https://explorer-animechain-39xf6m45e3.t.conduit.xyz/address/${account}`;
+  const networkConfig = NETWORKS[network] || NETWORKS.animechain;
+  const isDevFaucet = network === 'sepolia'; // Use devFaucet on Sepolia
+  const contractABI = isDevFaucet ? DEV_FAUCET_ABI : FAUCET_ABI;
+  const explorerUrl = `${networkConfig.blockExplorerUrls[0]}address/${account}`;
 
   const formatCooldown = () => {
     const cooldownSeconds = Number(cooldown);
@@ -66,7 +66,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
       if (window.ethereum) {
         const provider = new ethers.BrowserProvider(window.ethereum);
         setProvider(provider);
-        const contract = new ethers.Contract(contractAddress, FAUCET_ABI, provider);
+        const contract = new ethers.Contract(contractAddress, contractABI, provider);
         setContract(contract);
         
         // Check if user is already connected
@@ -373,10 +373,15 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
       console.log("Signature obtained:", signature);
       const sig = ethers.Signature.from(signature);
       
-      // For first withdrawal (withdrawalCount == 0), use server API
-      if (withdrawalCount === 0) {
+      if (isDevFaucet) {
+        // TODO: Implement proof-of-work mining for devFaucet
+        throw new Error('DevFaucet proof-of-work mining not yet implemented. Please mine offline and use direct contract interaction.');
+      }
+
+      // For first withdrawal (withdrawalCount == 0), use server API (original faucet only)
+      if (withdrawalCount === 0 && !isDevFaucet) {
         // Determine server URL based on current network
-        const serverUrl = isDev ? 'http://localhost:5000' : 'https://faucet.animechain.dev';
+        const serverUrl = network === 'sepolia' ? 'http://localhost:5000' : 'https://faucet.animechain.dev';
         console.log(`Using server at ${serverUrl} for first withdrawal`);
         
         try {
@@ -387,7 +392,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              network: isDev ? 'sepolia' : 'animechain',
+              network: network,
               user_address: account,
               v: sig.v,
               r: sig.r,
@@ -487,12 +492,14 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
         const calculatedCooldown = calculateCooldown();
         setCooldown(calculatedCooldown);
         
-        // Get the last recipient when refreshing cooldown
-        try {
-          const recipient = await contract.last_recipient();
-          setLastRecipient(recipient);
-        } catch (recipientErr) {
-          console.error("Error getting last recipient:", recipientErr);
+        // Get the last recipient when refreshing cooldown (only for original faucet)
+        if (!isDevFaucet) {
+          try {
+            const recipient = await contract.last_recipient();
+            setLastRecipient(recipient);
+          } catch (recipientErr) {
+            console.error("Error getting last recipient:", recipientErr);
+          }
         }
       }
     } catch (err) {
@@ -502,8 +509,11 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
     }
   };
 
+  const isTestnet = network === 'sepolia' || network === 'animechain_testnet';
+  
   return (
     <div className="faucet-container dark-theme">
+      {isTestnet && <div className="dev-banner">Testnet Mode - Using {networkConfig.chainName}</div>}
       <div className="logo-container">
         <img src={animecoinIcon} alt="Animecoin Logo" className="animecoin-logo" />
       </div>
@@ -551,7 +561,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
             )}
             
             <p className="withdrawal-count">
-              Withdrawals completed: <span className="count">{withdrawalCount}</span> / 3
+              Withdrawals completed: <span className="count">{withdrawalCount}</span> / {isDevFaucet ? 8 : 3}
             </p>
             
             <div className="explorer-link-container">
@@ -560,7 +570,7 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
               </a>
             </div>
           </div>
-          {withdrawalCount < 3 && (
+          {(isDevFaucet ? withdrawalCount < 8 : withdrawalCount < 3) && (
             <div className="messages-container">
               <h3>Sign Message to get 0.1 {networkConfig.nativeCurrency.symbol}</h3>
               <p className="signature-info">A unique signature is required for each withdrawal (global 7.5 minute cooldown)</p>
@@ -588,9 +598,16 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
                   <div>
                     <p className="message-message">Sign the above message to receive 0.1 Anime Coin:</p>
                   </div>
-                  {withdrawalCount === 0 && (
+                  {withdrawalCount === 0 && !isDevFaucet && (
                     <div className="server-info">
-                      <p>📡 First withdrawal will use server API at {isDev ? 'localhost' : 'faucet.animecoin.dev'} to pay for gas</p>
+                      <p>📡 First withdrawal will use server API at {network === 'sepolia' ? 'localhost' : 'faucet.animechain.dev'} to pay for gas</p>
+                    </div>
+                  )}
+                  {isDevFaucet && (
+                    <div className="dev-faucet-info">
+                      <p>⚡ DevFaucet: Proof-of-work mining required for withdrawal</p>
+                      <p>💎 Progressive amounts: 5, 5, 10, 15, 25, 50, 75, 100 tokens</p>
+                      <p>🔄 Daily reset: Up to 8 withdrawals per 24-hour period</p>
                     </div>
                   )}
                 </div>
@@ -600,13 +617,15 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           <div className="actions-container">
             <button
               onClick={handleWithdraw}
-              disabled={loading || serverLoading || Number(cooldown) > 0 || withdrawalCount >= 3}
+              disabled={loading || serverLoading || Number(cooldown) > 0 || (isDevFaucet ? withdrawalCount >= 8 : withdrawalCount >= 3)}
               className="action-button"
             >
               {loading ? 'Processing...' :
                 serverLoading ? 'Sending to Server...' :
-                withdrawalCount >= 3 ? 'Maximum withdrawals reached' :
+                isDevFaucet && withdrawalCount >= 8 ? 'Daily limit reached (8/8)' :
+                !isDevFaucet && withdrawalCount >= 3 ? 'Maximum withdrawals reached (3/3)' :
                 Number(cooldown) > 0 ? `Faucet available in ${formatCooldown()}` :
+                isDevFaucet ? 'Mine Proof-of-Work & Request Tokens' :
                 withdrawalCount === 0 ? `Sign & Request via Server (First Withdrawal)` :
                 `Sign & Request 0.1 ${networkConfig.nativeCurrency.symbol} Directly`}
             </button>
@@ -647,6 +666,16 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           margin: 0 auto;
           position: relative;
           z-index: 1;
+        }
+        
+        .dev-banner {
+          background-color: #ff9800;
+          color: #000;
+          padding: 10px;
+          text-align: center;
+          font-weight: bold;
+          border-radius: 8px 8px 0 0;
+          margin: -20px -20px 20px -20px;
         }
         
         .faucet-container::before {
@@ -913,6 +942,20 @@ function Faucet({ contractAddress, isDev = false, onConnectionUpdate }) {
           margin-top: 10px;
           font-size: 13px;
           color: #aaa;
+        }
+        
+        .dev-faucet-info {
+          background-color: #2d2d2d;
+          padding: 10px;
+          border-radius: 6px;
+          margin-top: 10px;
+          border-left: 3px solid #ff9800;
+        }
+        
+        .dev-faucet-info p {
+          margin: 5px 0;
+          font-size: 13px;
+          color: #ddd;
         }
         
         .actions-container {

@@ -6,6 +6,40 @@
   color: #ffffff;
 }
 
+.network-selector {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: rgba(33, 33, 33, 0.8);
+  border-radius: 10px;
+  border: 1px solid #444;
+}
+
+.network-selector label {
+  color: #ccc;
+  font-weight: bold;
+}
+
+.network-dropdown {
+  background-color: #2d2d2d;
+  color: #ffffff;
+  border: 1px solid #6c5ce7;
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  min-width: 200px;
+  cursor: pointer;
+}
+
+.network-dropdown:focus {
+  outline: none;
+  border-color: #5549c0;
+  box-shadow: 0 0 0 2px rgba(108, 92, 231, 0.3);
+}
+
 .logo {
   height: 6em;
   padding: 1.5em;
@@ -108,13 +142,23 @@
   font-weight: bold;
 }
 
-.network-toggle {
+.network-selector {
   position: absolute;
   top: 1rem;
   right: 1rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.5rem;
 }
 
-.toggle-button {
+.network-selector label {
+  font-size: 0.9em;
+  color: #888;
+  font-weight: 500;
+}
+
+.network-dropdown {
   background-color: #646cff;
   color: white;
   border: 1px solid transparent;
@@ -125,19 +169,23 @@
   font-family: inherit;
   cursor: pointer;
   transition: all 0.25s;
+  min-width: 200px;
 }
 
-.toggle-button:hover {
+.network-dropdown:hover {
   background-color: #535bf2;
   transform: translateY(-2px);
 }
 
-.toggle-button.dev-mode {
-  background-color: #ff6b6b;
+.network-dropdown:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(100, 108, 255, 0.3);
 }
 
-.toggle-button.dev-mode:hover {
-  background-color: #ff5252;
+.network-dropdown option {
+  background-color: #1a1a1a;
+  color: white;
+  padding: 0.5em;
 }
 
 .actions-container {
