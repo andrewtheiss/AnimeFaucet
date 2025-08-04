@@ -1,12 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import './App.css'
 import Faucet from './components/Faucet'
 
-// Contract addresses for different networks
+// Contract addresses for different networks - updated for devFaucet
 const CONTRACTS = {
-  animechain: "0x5bC7B433dEc788dA9973807b3B4F1152a947aF0C", // Deployed Faucet with global cooldown on AnimeChain
-  animechain_testnet: "0x0000000000000000000000000000000000000000", // TODO: Deploy faucet to AnimeChain testnet
-  sepolia: "0xAc20e615f58812334308D1DAFa27C5Ca1Cc33B53"    // Test Faucet on Sepolia testnet
+  animechain: "0x81AC57b126940a1F946Aed67e5C0F0351d607eAb", // Production Faucet on AnimeChain mainnet (from animechain.dev)
+  animechain_testnet: "0x0000000000000000000000000000000000000000", // TODO: Deploy devFaucet to AnimeChain testnet
+  sepolia: "0xAc20e615f58812334308D1DAFa27C5Ca1Cc33B53"    // devFaucet on Sepolia testnet
 };
 
 function App() {
@@ -16,8 +16,10 @@ function App() {
     if (savedNetwork && ['animechain', 'animechain_testnet', 'sepolia'].includes(savedNetwork)) {
       return savedNetwork;
     }
-    return import.meta.env.VITE_NETWORK || 'animechain_testnet'; // Default to testnet
+    return import.meta.env.VITE_NETWORK || 'sepolia'; // Default to sepolia for devFaucet testing
   });
+  
+  const [isConnected, setIsConnected] = useState(false);
 
   const contractAddress = CONTRACTS[network];
 
@@ -26,6 +28,11 @@ function App() {
     localStorage.setItem('selectedNetwork', newNetwork);
     // Reload the page to ensure clean network switch
     window.location.reload();
+  };
+  
+  // Function for the Faucet component to call when wallet connection status changes
+  const updateConnectionStatus = (connected) => {
+    setIsConnected(connected);
   };
 
   const getNetworkDisplayName = () => {
@@ -62,10 +69,25 @@ function App() {
         </select>
       </div>
       <h1>{getNetworkDisplayName()} Faucet</h1>
-      <Faucet contractAddress={contractAddress} network={network} />
-      <p className="read-the-docs">
-        Connect your wallet to request {getTokenSymbol()} tokens
-      </p>
+      <Faucet 
+        contractAddress={contractAddress} 
+        network={network}
+        onConnectionUpdate={updateConnectionStatus}
+      />
+      {!isConnected ? (
+        <p className="read-the-docs">
+          Connect your wallet to request {getTokenSymbol()} tokens
+        </p>
+      ) : (
+        <div className="refill-footer">
+          <button 
+            onClick={() => document.querySelector('.refill-toggle-button')?.click()} 
+            className="footer-refill-button"
+          >
+            🔄 Refill Faucet
+          </button>
+        </div>
+      )}
     </>
   )
 }
