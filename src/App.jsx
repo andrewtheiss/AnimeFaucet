@@ -1,33 +1,67 @@
 import { useState } from 'react'
 import './App.css'
 import Faucet from './components/Faucet'
+import { NETWORKS } from './constants/contracts'
 
 // Contract addresses for different networks - updated for devFaucet
 const CONTRACTS = {
   animechain: "0x81AC57b126940a1F946Aed67e5C0F0351d607eAb", // Production Faucet on AnimeChain mainnet (from animechain.dev)
   animechain_testnet: "0x0000000000000000000000000000000000000000", // TODO: Deploy devFaucet to AnimeChain testnet
-  sepolia: "0xAc20e615f58812334308D1DAFa27C5Ca1Cc33B53"    // devFaucet on Sepolia testnet
 };
 
 function App() {
   // Initialize network from localStorage or environment variable
   const [network, setNetwork] = useState(() => {
     const savedNetwork = localStorage.getItem('selectedNetwork');
-    if (savedNetwork && ['animechain', 'animechain_testnet', 'sepolia'].includes(savedNetwork)) {
+    if (savedNetwork && ['animechain', 'animechain_testnet'].includes(savedNetwork)) {
       return savedNetwork;
     }
-    return import.meta.env.VITE_NETWORK || 'sepolia'; // Default to sepolia for devFaucet testing
+    return import.meta.env.VITE_NETWORK || 'animechain'; // Default to mainnet
   });
   
   const [isConnected, setIsConnected] = useState(false);
 
   const contractAddress = CONTRACTS[network];
 
-  const handleNetworkChange = (newNetwork) => {
-    setNetwork(newNetwork);
-    localStorage.setItem('selectedNetwork', newNetwork);
-    // Reload the page to ensure clean network switch
-    window.location.reload();
+  const handleNetworkChange = async (newNetwork) => {
+    try {
+      // Update React state first
+      setNetwork(newNetwork);
+      localStorage.setItem('selectedNetwork', newNetwork);
+      
+      // If user has MetaMask and is connected, switch the network
+      if (window.ethereum && isConnected) {
+        const networkConfig = NETWORKS[newNetwork];
+        if (networkConfig) {
+          try {
+            await window.ethereum.request({
+              method: 'wallet_switchEthereumChain',
+              params: [{ chainId: networkConfig.chainId }],
+            });
+          } catch (switchError) {
+            // If network doesn't exist in MetaMask, add it
+            if (switchError.code === 4902) {
+              await window.ethereum.request({
+                method: 'wallet_addEthereumChain',
+                params: [networkConfig],
+              });
+            } else {
+              // For other errors, still reload the page
+              console.error('Network switch error:', switchError);
+              window.location.reload();
+              return;
+            }
+          }
+        }
+      }
+      
+      // Reload the page to ensure clean network switch
+      window.location.reload();
+    } catch (error) {
+      console.error('Error switching network:', error);
+      // If anything fails, just reload the page
+      window.location.reload();
+    }
   };
   
   // Function for the Faucet component to call when wallet connection status changes
@@ -39,7 +73,6 @@ function App() {
     switch (network) {
       case 'animechain': return 'AnimeChain';
       case 'animechain_testnet': return 'AnimeChain Testnet';
-      case 'sepolia': return 'Sepolia';
       default: return 'AnimeChain';
     }
   };
@@ -48,7 +81,6 @@ function App() {
     switch (network) {
       case 'animechain': return 'ANIME';
       case 'animechain_testnet': return 'tANIME';
-      case 'sepolia': return 'SEP';
       default: return 'ANIME';
     }
   };
@@ -64,8 +96,7 @@ function App() {
           className="network-dropdown"
         >
           <option value="animechain">🎬 AnimeChain Mainnet</option>
-          <option value="animechain_testnet">🧪 AnimeChain Testnet</option>
-          <option value="sepolia">🔧 Sepolia Testnet</option>
+          <option value="animechain_testnet">🧪 AnimeChain Testnet (Proof of Work)</option>
         </select>
       </div>
       <h1>{getNetworkDisplayName()} Faucet</h1>

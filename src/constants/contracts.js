@@ -90,16 +90,5 @@ export const NETWORKS = {
     rpcUrls: ['https://rpc-conduit-orbit-deployer-d4pqjb0rle.t.conduit.xyz/'],
     blockExplorerUrls: ['https://explorer-conduit-orbit-deployer-d4pqjb0rle.t.conduit.xyz/'],
     iconUrls: [window.location.origin + '/assets/animecoin.png']
-  },
-  sepolia: {
-    chainId: '0xaa36a7', // 11155111 in hex
-    chainName: 'Sepolia',
-    nativeCurrency: {
-      name: 'Sepolia Ether',
-      symbol: 'SEP',
-      decimals: 18
-    },
-    rpcUrls: ['https://rpc.sepolia.org'],
-    blockExplorerUrls: ['https://sepolia.etherscan.io'],
   }
 }; 
