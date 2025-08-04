@@ -29,6 +29,16 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
   const [timerInitialized, setTimerInitialized] = useState(false);
   const [lastTxHash, setLastTxHash] = useState('');
   
+  // PoW mining state variables
+  const [powMining, setPowMining] = useState(false);
+  const [powComplete, setPowComplete] = useState(false);
+  const [powData, setPowData] = useState(null);
+  const [powProgress, setPowProgress] = useState(0);
+  const [powStartTime, setPowStartTime] = useState(null);
+  
+  // Server endpoint preference for localhost users
+  const [useLocalServer, setUseLocalServer] = useState(true);
+  
   // Detect localhost for showing server features
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
@@ -197,8 +207,10 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           setExpectedMessage(message);
         } catch (msgErr) {
           console.error("Error getting expected message:", msgErr);
-          // Fallback to using the withdrawal messages array
-          const fallbackMessage = WITHDRAWAL_MESSAGES[withdrawalCount] || "";
+          // Fallback to using the appropriate messages array
+          const fallbackMessage = isDevFaucet ? 
+            (DEV_FAUCET_MESSAGES[withdrawalCount] || "") : 
+            (WITHDRAWAL_MESSAGES[withdrawalCount] || "");
           console.log("Using fallback message:", fallbackMessage);
           setExpectedMessage(fallbackMessage);
         }
@@ -251,7 +263,9 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           setExpectedMessage(message);
         } catch (msgErr) {
           console.error("Error getting expected message:", msgErr);
-          const fallbackMessage = WITHDRAWAL_MESSAGES[withdrawalCount] || "";
+          const fallbackMessage = isDevFaucet ? 
+            (DEV_FAUCET_MESSAGES[withdrawalCount] || "") : 
+            (WITHDRAWAL_MESSAGES[withdrawalCount] || "");
           setExpectedMessage(fallbackMessage);
         }
       }
@@ -334,7 +348,12 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
 
   // Create display messages that hide certain text for UI
   const getDisplayMessage = (index) => {
-    // For the first message, hide the "Earth domain is best" part in the UI
+    if (isDevFaucet) {
+      // Use devFaucet messages directly
+      return DEV_FAUCET_MESSAGES[index] || "";
+    }
+    
+    // For mainnet faucet, for the first message, hide the "Earth domain is best" part in the UI
     if (index === 0) {
       return "I'll use this ANIME coin to build something on ANIME chain.";
     }
@@ -364,8 +383,17 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           { name: "nonce", type: "uint256" }
         ]
       };
-      // If expectedMessage is empty, fall back to the array
-      const messageToSign = expectedMessage || WITHDRAWAL_MESSAGES[withdrawalCount];
+      // If expectedMessage is empty, fall back to the appropriate array
+      const messageToSign = expectedMessage || (isDevFaucet ? 
+        DEV_FAUCET_MESSAGES[withdrawalCount] : 
+        WITHDRAWAL_MESSAGES[withdrawalCount]);
+      
+      // Validate message exists
+      if (!messageToSign) {
+        throw new Error('No message available for signing. Please refresh and try again.');
+      }
+      
+      console.log("Message to sign:", messageToSign);
       
       const message = {
         recipient: account,
@@ -383,17 +411,43 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       console.log("Signature obtained:", signature);
       const sig = ethers.Signature.from(signature);
       
-      if (isDevFaucet) {
-        // TODO: Implement proof-of-work mining for devFaucet
-        throw new Error('DevFaucet proof-of-work mining not yet implemented. Please mine offline and use direct contract interaction.');
+      // Check DevFaucet PoW requirements (for all withdrawals, including first via server)
+      if (isDevFaucet && (!powComplete || !powData)) {
+        throw new Error('Please complete proof-of-work mining before requesting tokens.');
       }
 
-      // For first withdrawal (withdrawalCount == 0), use server API (original faucet only)
-      if (withdrawalCount === 0 && !isDevFaucet) {
-        // Determine server URL - use localhost for development, otherwise official server
-        const serverUrl = isLocalhost ? 'http://localhost:5000' : 'https://faucet.animechain.dev';
+      // For first withdrawal (withdrawalCount == 0), use server API for both faucets
+      if (withdrawalCount === 0) {
+        // Determine server URL based on user preference (localhost) or default (production)
+        const serverUrl = isLocalhost 
+          ? (useLocalServer ? 'http://localhost:5000' : 'https://faucet.animechain.dev')
+          : 'https://faucet.animechain.dev';
         const serverNetwork = getServerNetwork(network);
         console.log(`Using server at ${serverUrl} for first withdrawal on network ${serverNetwork}`);
+        
+        // Log the request data for debugging
+        const requestData = isDevFaucet ? {
+          network: serverNetwork,
+          user_address: account,
+          chosen_block_hash: powData?.chosenBlockHash || '0x0000000000000000000000000000000000000000000000000000000000000000',
+          withdrawal_index: powData?.withdrawalIndex || 1,
+          ip_address: powData?.ipAddressHash || '0x0000000000000000000000000000000000000000000000000000000000000000',
+          nonce: powData?.nonce || 0,
+          v: sig.v,
+          r: sig.r,
+          s: sig.s,
+          message: messageToSign
+        } : {
+          network: serverNetwork,
+          user_address: account,
+          v: sig.v,
+          r: sig.r,
+          s: sig.s,
+          message: messageToSign
+        };
+        
+        console.log("Server request data:", requestData);
+        console.log("Sending network name to server:", serverNetwork);
         
         try {
           setServerLoading(true);
@@ -402,18 +456,19 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
             headers: {
               'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-              network: serverNetwork,
-              user_address: account,
-              v: sig.v,
-              r: sig.r,
-              s: sig.s,
-              message: messageToSign
-            })
+            body: JSON.stringify(requestData)
           });
           
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Unknown server error' }));
+            
+            // Special handling for network not available error
+            if (errorData.error && errorData.error.includes('Network') && errorData.error.includes('not available')) {
+              console.error("Network not available error:", errorData);
+              console.log("Tried network name:", serverNetwork);
+              console.log("Available networks might be: animechain, testnet, animechain_testnet");
+              throw new Error(`Network "${serverNetwork}" not available on server. Check server logs for available networks.`);
+            }
             
             // Special handling for server funds error
             if (errorData.error && errorData.error.includes('Server has insufficient funds')) {
@@ -446,8 +501,45 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         } finally {
           setServerLoading(false);
         }
+        
+        // Reset PoW state after successful server withdrawal (DevFaucet only)
+        if (isDevFaucet) {
+          setPowComplete(false);
+          setPowData(null);
+          setPowProgress(0);
+        }
+      } else if (isDevFaucet) {
+        // For subsequent DevFaucet withdrawals, use direct contract interaction
+        console.log("Using PoW data for devFaucet withdrawal:", powData);
+        
+        // Call devFaucet withdraw with PoW parameters
+        const tx = await contractWithSigner.withdraw(
+          powData.chosenBlockHash,
+          powData.withdrawalIndex,
+          powData.ipAddressHash,
+          powData.nonce,
+          sig.v,
+          sig.r,
+          sig.s
+        );
+        
+        console.log("DevFaucet transaction submitted:", tx.hash);
+        setLastTxHash(tx.hash);
+        await tx.wait();
+        console.log("DevFaucet transaction confirmed!");
+        
+        // Reset PoW state after successful withdrawal
+        setPowComplete(false);
+        setPowData(null);
+        setPowProgress(0);
+        
+        // Reset cooldown after successful withdrawal
+        await resetCooldownAfterWithdrawal();
+        
+        // Update user balance
+        await updateUserBalance();
       } else {
-        // For subsequent withdrawals, use direct contract interaction
+        // For subsequent original faucet withdrawals, use direct contract interaction
         console.log("Calling withdraw directly with signature and message...");
         const tx = await contractWithSigner.withdraw(sig.v, sig.r, sig.s, messageToSign);
         console.log("Transaction submitted:", tx.hash);
@@ -520,50 +612,144 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     }
   };
 
-  const isTestnet = network === 'animechain_testnet';
-  
-  // Server withdrawal function for localhost only
-  const handleServerWithdraw = async () => {
-    if (!isLocalhost) {
-      setError('Server withdrawals only available on localhost');
+  // PoW Mining Utility Functions
+  const getIpAddressHash = async () => {
+    // For privacy, we'll use a consistent hash of the user's address + a browser fingerprint
+    // In a real implementation, you might want to get actual IP from a service
+    const fingerprint = navigator.userAgent + navigator.language + screen.width + screen.height;
+    const combinedData = account + fingerprint;
+    return ethers.keccak256(ethers.toUtf8Bytes(combinedData));
+  };
+
+  const getDifficultyTarget = (withdrawalIndex) => {
+    const targets = [8000, 8000, 8000, 8000, 16000, 32000, 64000, 128000];
+    return targets[withdrawalIndex - 1] || 8000;
+  };
+
+  const calculatePowHash = (userAddress, blockHash, withdrawalIndex, ipAddressHash, nonce) => {
+    // Convert all inputs to bytes and concatenate
+    const userBytes = ethers.getBytes(userAddress);
+    const blockHashBytes = ethers.getBytes(blockHash);
+    const indexBytes = ethers.zeroPadValue(ethers.toBeHex(withdrawalIndex), 32);
+    const ipBytes = ethers.getBytes(ipAddressHash);
+    const nonceBytes = ethers.zeroPadValue(ethers.toBeHex(nonce), 32);
+    
+    // Concatenate all bytes
+    const combinedBytes = ethers.concat([userBytes, blockHashBytes, indexBytes, ipBytes, nonceBytes]);
+    
+    // Return keccak256 hash
+    return ethers.keccak256(combinedBytes);
+  };
+
+  // PoW Mining Function
+  const startPowMining = async () => {
+    if (!contract || !account) {
+      setError('Contract or account not available');
       return;
     }
-    
+
     try {
-      setServerLoading(true);
+      setPowMining(true);
+      setPowComplete(false);
+      setPowProgress(0);
+      setPowStartTime(Date.now());
       setError('');
-      setSuccessMessage('');
+
+      // Get the withdrawal index (1-based)
+      const withdrawalIndex = withdrawalCount + 1;
       
-      const serverNetwork = getServerNetwork(network);
-      console.log(`Making server request for network: ${serverNetwork}`);
+      // Get difficulty target for this withdrawal
+      const difficultyTarget = getDifficultyTarget(withdrawalIndex);
       
-      const response = await fetch('http://localhost:5000/request-withdrawal', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          network: serverNetwork,
-          user_address: account,
-          v: 27, // Example values - in real implementation, you'd get these from signing
-          r: '0x0000000000000000000000000000000000000000000000000000000000000000',
-          s: '0x0000000000000000000000000000000000000000000000000000000000000000',
-          message: expectedMessage || (isDevFaucet ? DEV_FAUCET_MESSAGES[0] : WITHDRAWAL_MESSAGES[0])
-        })
+      // Get recent block hash
+      const latestBlock = await provider.getBlock('latest');
+      const chosenBlockHash = latestBlock.hash;
+      
+      // Get IP address hash
+      const ipAddressHash = await getIpAddressHash();
+      
+      console.log('Starting PoW mining...', {
+        withdrawalIndex,
+        difficultyTarget,
+        chosenBlockHash,
+        ipAddressHash: ipAddressHash.substring(0, 10) + '...'
       });
+
+      // Mining loop
+      let nonce = 0;
+      let found = false;
+      const startTime = Date.now();
       
-      const result = await response.json();
-      if (result.error) {
-        throw new Error(result.error);
+      while (!found) {
+        // Calculate hash for this nonce
+        const powHash = calculatePowHash(account, chosenBlockHash, withdrawalIndex, ipAddressHash, nonce);
+        const hashValue = BigInt(powHash);
+        
+        // Check if hash meets difficulty requirement
+        if (hashValue % BigInt(difficultyTarget) === 0n) {
+          found = true;
+          
+          const miningTime = (Date.now() - startTime) / 1000;
+          console.log(`PoW found! Nonce: ${nonce}, Hash: ${powHash}, Time: ${miningTime.toFixed(2)}s`);
+          
+          // Store the PoW data
+          setPowData({
+            chosenBlockHash,
+            withdrawalIndex,
+            ipAddressHash,
+            nonce,
+            powHash,
+            difficultyTarget,
+            miningTime
+          });
+          
+          setPowComplete(true);
+          setPowProgress(100);
+        } else {
+          nonce++;
+          
+          // Update progress every 1000 iterations
+          if (nonce % 1000 === 0) {
+            const elapsed = Date.now() - startTime;
+            const rate = nonce / (elapsed / 1000);
+            const estimatedTotal = difficultyTarget;
+            const progressPercent = Math.min((nonce / estimatedTotal) * 100, 99);
+            setPowProgress(progressPercent);
+            
+            // Allow UI to update
+            await new Promise(resolve => setTimeout(resolve, 1));
+          }
+          
+          // Safety check to prevent infinite loops
+          if (nonce > difficultyTarget * 10) {
+            throw new Error('Mining took too long, please try again');
+          }
+        }
       }
-      
-      setSuccessMessage(`Server request sent! Response: ${JSON.stringify(result)}`);
-    } catch (error) {
-      setError(`Server request failed: ${error.message}`);
+    } catch (err) {
+      console.error('PoW mining error:', err);
+      setError(`Mining failed: ${err.message}`);
+      setPowMining(false);
+      setPowComplete(false);
     } finally {
-      setServerLoading(false);
+      if (!powComplete) {
+        setPowMining(false);
+      }
     }
   };
+
+  // Reset PoW state when withdrawal count changes
+  useEffect(() => {
+    if (isDevFaucet) {
+      setPowComplete(false);
+      setPowData(null);
+      setPowProgress(0);
+    }
+  }, [withdrawalCount, isDevFaucet]);
+
+  const isTestnet = network === 'animechain_testnet';
+  
+
 
   return (
     <div className="faucet-container dark-theme">
@@ -574,19 +760,26 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       
 
       
-      {/* Server Testing - only show on localhost */}
+      {/* Server Endpoint Switcher - only show on localhost */}
       {isLocalhost && account && (
         <div className="server-testing">
-          <h3>Server Testing (Localhost Only)</h3>
-          <button 
-            onClick={handleServerWithdraw}
-            disabled={serverLoading}
-            className="server-test-button"
-          >
-            {serverLoading ? 'Testing Server...' : `Test Server Request (${getServerNetwork(network)})`}
-          </button>
+          <h3>Server Endpoint (Localhost Only)</h3>
+          <div className="server-toggle-container">
+            <button 
+              onClick={() => setUseLocalServer(true)}
+              className={`server-toggle-button ${useLocalServer ? 'active' : ''}`}
+            >
+              🏠 Local Server (localhost:5000)
+            </button>
+            <button 
+              onClick={() => setUseLocalServer(false)}
+              className={`server-toggle-button ${!useLocalServer ? 'active' : ''}`}
+            >
+              🌐 Production Server (faucet.animechain.dev)
+            </button>
+          </div>
           <p className="server-info-text">
-            This button sends a test request to your local server (localhost:5000)
+            Choose which server endpoint to use for withdrawals. Current: <strong>{useLocalServer ? 'localhost:5000' : 'faucet.animechain.dev'}</strong>
           </p>
         </div>
       )}
@@ -645,7 +838,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           </div>
           {(isDevFaucet ? withdrawalCount < 8 : withdrawalCount < 3) && (
             <div className="messages-container">
-              <h3>Sign Message to get 0.1 {networkConfig.nativeCurrency.symbol}</h3>
+              <h3>{isDevFaucet ? 'Step 2: Sign Message to get tokens' : `Sign Message to get 0.1 ${networkConfig.nativeCurrency.symbol}`}</h3>
               <p className="signature-info">A unique signature is required for each withdrawal (global 7.5 minute cooldown)</p>
               <div className="message-progress">
                 <div className={`progress-step ${withdrawalCount >= 1 ? 'completed' : withdrawalCount === 0 ? 'current' : ''}`}>1</div>
@@ -663,17 +856,29 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
               <div className="current-message">
                 <div className="message-content">
                   <div className="message-highlight"><p><b>{getDisplayMessage(withdrawalCount)}</b></p></div>
-                  {expectedMessage && expectedMessage !== WITHDRAWAL_MESSAGES[withdrawalCount] && (
+                  {expectedMessage && expectedMessage !== (isDevFaucet ? DEV_FAUCET_MESSAGES[withdrawalCount] : WITHDRAWAL_MESSAGES[withdrawalCount]) && (
                     <div className="expected-message">
-                      <p><strong>Contract expects:</strong> {expectedMessage.replace("  Also, Earth domain is best.", "")}</p>
+                      <p><strong>Contract expects:</strong> {isDevFaucet ? expectedMessage : expectedMessage.replace("  Also, Earth domain is best.", "")}</p>
                     </div>
                   )}
                   <div>
-                    <p className="message-message">Sign the above message to receive 0.1 Anime Coin:</p>
+                    <p className="message-message">
+                      {isDevFaucet ? 
+                        `Sign the above message to receive ${[5,5,10,15,25,50,75,100][withdrawalCount] || 5} tokens:` :
+                        'Sign the above message to receive 0.1 Anime Coin:'
+                      }
+                    </p>
                   </div>
-                  {withdrawalCount === 0 && !isDevFaucet && (
+                  {withdrawalCount === 0 && (
                     <div className="server-info">
-                      <p>📡 First withdrawal will use server API at {isLocalhost ? 'localhost' : 'faucet.animechain.dev'} to pay for gas</p>
+                      <p>📡 First withdrawal will use server API at {
+                        isLocalhost 
+                          ? (useLocalServer ? 'localhost:5000' : 'faucet.animechain.dev')
+                          : 'faucet.animechain.dev'
+                      } to pay for gas</p>
+                      {isDevFaucet && (
+                        <p>💡 <strong>Note:</strong> DevFaucet server supports PoW mining + gas assistance for first withdrawal.</p>
+                      )}
                     </div>
                   )}
                   {isDevFaucet && (
@@ -681,6 +886,53 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
                       <p>⚡ DevFaucet: Proof-of-work mining required for withdrawal</p>
                       <p>💎 Progressive amounts: 5, 5, 10, 15, 25, 50, 75, 100 tokens</p>
                       <p>🔄 Daily reset: Up to 8 withdrawals per 24-hour period</p>
+                      <p>⛏️ Difficulty: ~{Math.round(getDifficultyTarget(withdrawalCount + 1) / 1000)}k hashes (est. {
+                        withdrawalCount < 4 ? '30s' : 
+                        withdrawalCount === 4 ? '1min' : 
+                        withdrawalCount === 5 ? '2min' : 
+                        withdrawalCount === 6 ? '4min' : '8min'
+                      } avg)</p>
+                    </div>
+                  )}
+                  
+                  {isDevFaucet && (
+                    <div className="pow-mining-container">
+                      {!powComplete ? (
+                        <div className="pow-mining-section">
+                          <h4>Step 1: Mine Proof-of-Work</h4>
+                          {!powMining ? (
+                            <button
+                              onClick={startPowMining}
+                              disabled={loading || withdrawalCount >= 8}
+                              className="pow-start-button"
+                            >
+                              ⛏️ Start Mining Proof-of-Work
+                            </button>
+                          ) : (
+                            <div className="pow-mining-status">
+                              <div className="mining-spinner">⛏️</div>
+                              <p>Mining in progress... ({powProgress.toFixed(1)}%)</p>
+                              <div className="pow-progress-bar">
+                                <div className="pow-progress-fill" style={{ width: `${powProgress}%` }}></div>
+                              </div>
+                              <p className="mining-stats">
+                                Difficulty: {getDifficultyTarget(withdrawalCount + 1).toLocaleString()} | 
+                                Time: {powStartTime ? ((Date.now() - powStartTime) / 1000).toFixed(1) : 0}s
+                              </p>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="pow-complete-section">
+                          <h4>✅ Proof-of-Work Complete!</h4>
+                          <div className="pow-success-info">
+                            <p>🎯 <strong>Valid hash found!</strong></p>
+                            <p>⛏️ Nonce: {powData?.nonce?.toLocaleString()}</p>
+                            <p>⏱️ Mining time: {powData?.miningTime?.toFixed(2)}s</p>
+                            <p>🔗 Hash: {powData?.powHash?.substring(0, 10)}...{powData?.powHash?.substring(powData.powHash.length - 6)}</p>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -690,15 +942,16 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           <div className="actions-container">
             <button
               onClick={handleWithdraw}
-              disabled={loading || serverLoading || Number(cooldown) > 0 || (isDevFaucet ? withdrawalCount >= 8 : withdrawalCount >= 3)}
-              className="action-button"
+              disabled={loading || serverLoading || Number(cooldown) > 0 || (isDevFaucet ? (withdrawalCount >= 8 || !powComplete) : withdrawalCount >= 3)}
+              className={`action-button ${isDevFaucet && powComplete ? 'pow-ready' : ''}`}
             >
               {loading ? 'Processing...' :
                 serverLoading ? 'Sending to Server...' :
                 isDevFaucet && withdrawalCount >= 8 ? 'Daily limit reached (8/8)' :
                 !isDevFaucet && withdrawalCount >= 3 ? 'Maximum withdrawals reached (3/3)' :
                 Number(cooldown) > 0 ? `Faucet available in ${formatCooldown()}` :
-                isDevFaucet ? 'Mine Proof-of-Work & Request Tokens' :
+                isDevFaucet && !powComplete ? 'Complete Mining First (Step 1)' :
+                isDevFaucet && powComplete ? '🎯 PoW Hash Found! Get Faucet Anime' :
                 withdrawalCount === 0 ? `Sign & Request via Server (First Withdrawal)` :
                 `Sign & Request 0.1 ${networkConfig.nativeCurrency.symbol} Directly`}
             </button>
@@ -1121,26 +1374,35 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           color: #aaa;
         }
         
-        .server-test-button {
-          background-color: #ff9800;
-          color: white;
-          padding: 10px 20px;
-          border: none;
+        .server-toggle-container {
+          display: flex;
+          gap: 10px;
+          margin-bottom: 15px;
+        }
+        
+        .server-toggle-button {
+          background-color: #333;
+          color: #ccc;
+          padding: 10px 15px;
+          border: 2px solid #555;
           border-radius: 6px;
           cursor: pointer;
-          font-size: 14px;
+          font-size: 13px;
           font-weight: bold;
-          width: 100%;
-          transition: background-color 0.3s;
+          flex: 1;
+          transition: all 0.3s;
+          text-align: center;
         }
         
-        .server-test-button:hover:not(:disabled) {
-          background-color: #f57c00;
+        .server-toggle-button.active {
+          background-color: #ff9800;
+          color: white;
+          border-color: #ff9800;
         }
         
-        .server-test-button:disabled {
-          background-color: #666;
-          cursor: not-allowed;
+        .server-toggle-button:hover:not(.active) {
+          background-color: #444;
+          border-color: #666;
         }
         
         .success-message {
@@ -1150,6 +1412,120 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           background-color: rgba(76, 209, 55, 0.1);
           border-radius: 6px;
           border-left: 3px solid #4cd137;
+        }
+        
+        .pow-mining-container {
+          background-color: #2d2d2d;
+          padding: 15px;
+          border-radius: 8px;
+          margin: 15px 0;
+          border: 2px solid #ff9800;
+        }
+        
+        .pow-mining-section h4,
+        .pow-complete-section h4 {
+          margin: 0 0 15px 0;
+          color: #ff9800;
+          font-size: 16px;
+        }
+        
+        .pow-start-button {
+          background-color: #ff9800;
+          color: white;
+          padding: 12px 20px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 16px;
+          width: 100%;
+          font-weight: bold;
+          transition: background-color 0.3s;
+        }
+        
+        .pow-start-button:hover:not(:disabled) {
+          background-color: #f57c00;
+        }
+        
+        .pow-start-button:disabled {
+          background-color: #666;
+          cursor: not-allowed;
+        }
+        
+        .pow-mining-status {
+          text-align: center;
+        }
+        
+        .mining-spinner {
+          font-size: 24px;
+          animation: spin 2s linear infinite;
+          margin-bottom: 10px;
+        }
+        
+        @keyframes spin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        
+        .pow-progress-bar {
+          width: 100%;
+          height: 12px;
+          background-color: #444;
+          border-radius: 6px;
+          overflow: hidden;
+          margin: 10px 0;
+        }
+        
+        .pow-progress-fill {
+          height: 100%;
+          background: linear-gradient(90deg, #ff9800, #ffc107);
+          border-radius: 6px;
+          transition: width 0.3s ease;
+        }
+        
+        .mining-stats {
+          font-size: 12px;
+          color: #aaa;
+          margin-top: 10px;
+        }
+        
+        .pow-complete-section {
+          text-align: center;
+        }
+        
+        .pow-success-info {
+          background-color: #1e3a1e;
+          border: 1px solid #4cd137;
+          border-radius: 6px;
+          padding: 15px;
+          margin-top: 10px;
+        }
+        
+        .pow-success-info p {
+          margin: 5px 0;
+          font-size: 14px;
+          color: #ddd;
+        }
+        
+        .pow-success-info strong {
+          color: #4cd137;
+        }
+        
+        .action-button.pow-ready {
+          background: linear-gradient(45deg, #4cd137, #2ed573);
+          animation: glow 2s ease-in-out infinite alternate;
+        }
+        
+        @keyframes glow {
+          from {
+            box-shadow: 0 0 5px #4cd137;
+          }
+          to {
+            box-shadow: 0 0 20px #4cd137, 0 0 30px #4cd137;
+          }
+        }
+        
+        .action-button.pow-ready:hover {
+          background: linear-gradient(45deg, #2ed573, #20bf6b);
         }
       `}</style>
     </div>
