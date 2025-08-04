@@ -5,7 +5,7 @@ import { FAUCET_ABI, NETWORKS, WITHDRAWAL_MESSAGES } from '../constants/contract
 // Define constants to match contract
 const COOLDOWN_PERIOD = 450; // 7.5 minutes in seconds (match contract)
 
-function Faucet({ contractAddress, isDev = false }) {
+function Faucet({ contractAddress, network = 'animechain' }) {
   const [account, setAccount] = useState(null);
   const [provider, setProvider] = useState(null);
   const [contract, setContract] = useState(null);
@@ -19,7 +19,7 @@ function Faucet({ contractAddress, isDev = false }) {
   const [withdrawalCount, setWithdrawalCount] = useState(0);
   const [expectedMessage, setExpectedMessage] = useState('');
 
-  const networkConfig = isDev ? NETWORKS.sepolia : NETWORKS.animechain;
+  const networkConfig = NETWORKS[network] || NETWORKS.animechain;
 
   const formatCooldown = () => {
     const cooldownSeconds = Number(cooldown);
@@ -195,9 +195,11 @@ function Faucet({ contractAddress, isDev = false }) {
     }
   };
 
+  const isTestnet = network === 'sepolia' || network === 'animechain_testnet';
+  
   return (
     <div className="faucet-container">
-      {isDev && <div className="dev-banner">Development Mode - Using Sepolia Testnet</div>}
+      {isTestnet && <div className="dev-banner">Testnet Mode - Using {networkConfig.chainName}</div>}
       {!account ? (
         <button onClick={connectWallet} disabled={loading} className="connect-button">
           {loading ? 'Connecting...' : `Connect to ${networkConfig.chainName}`}
