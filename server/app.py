@@ -44,8 +44,8 @@ NETWORK_CONFIG = {
     'testnet': {
         'rpc_url': 'https://testnet-rpc.anime.xyz/',
         'chain_id': 6900,
-        'faucet_address': '0xD2D8cbbb093042EDFd47C78cC09C425ceBD3B19E',  # DevFaucet address - UPDATED
-        'backend_address': '0x5174f3e6F83CF2283b7677829356C8Bc6fCe578f', # DevFaucetServer address - to be updated  
+        'faucet_address': '0xCDa4C3dF222fbfc6288ABEA51f13D1255f9E14f6',  # DevFaucet address - UPDATED
+        'backend_address': '0x3aEF475d3FA57790DDEFe79dEBdC46f6A9A48c72', # DevFaucetServer address - to be updated  
         'block_explorer_url': 'https://explorer-animechain-testnet-i8yja6a1a0.t.conduit.xyz/',
         'faucet_type': 'dev'  # Indicates this uses the dev faucet (proof-of-work)
     }

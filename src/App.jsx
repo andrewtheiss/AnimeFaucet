@@ -6,7 +6,7 @@ import { NETWORKS } from './constants/contracts'
 // Contract addresses for different networks - updated for devFaucet
 const CONTRACTS = {
   animechain: "0x81AC57b126940a1F946Aed67e5C0F0351d607eAb", // Production Faucet on AnimeChain mainnet (from animechain.dev)
-  animechain_testnet: "0xD2D8cbbb093042EDFd47C78cC09C425ceBD3B19E", // DevFaucet on AnimeChain testnet (proof-of-work)
+  animechain_testnet: "0xCDa4C3dF222fbfc6288ABEA51f13D1255f9E14f6", // DevFaucet on AnimeChain testnet (proof-of-work)
 };
 
 function App() {
