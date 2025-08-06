@@ -525,7 +525,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
             chosenBlockHash: powData.chosenBlockHash,
             withdrawalIndex: powData.withdrawalIndex,
             ipAddress: powData.ipAddressHash,
-            nonce: powData.nonce,
+            nonce: Number(nonce), // Use anti-replay nonce from contract (for EIP-712 signature)
             message: messageToSign
           };
           
@@ -579,7 +579,8 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           chosen_block_hash: powData?.chosenBlockHash || '0x0000000000000000000000000000000000000000000000000000000000000000',
           withdrawal_index: powData?.withdrawalIndex || 1,
           ip_address: powData?.ipAddressHash || '0x0000000000000000000000000000000000000000000000000000000000000000',
-          nonce: powData?.nonce || 0,
+          nonce: Number(nonce), // Send anti-replay nonce (matches what was signed)
+          pow_nonce: powData?.nonce || 0, // Send PoW nonce separately
           message: messageToSign,
           // Include signature for server authorization (required for first withdrawal)
           v: sig?.v || (() => { throw new Error('DevFaucet signature is required for server authorization'); })(),

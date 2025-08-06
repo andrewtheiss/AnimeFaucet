@@ -125,7 +125,7 @@ def request_withdrawal():
         # Validate required fields based on faucet type
         if is_dev_faucet:
             # DevFaucet now uses SINGLE SIGNATURE - no v, r, s needed!
-            required_fields = ['network', 'user_address', 'chosen_block_hash', 'withdrawal_index', 'ip_address', 'nonce', 'message']
+            required_fields = ['network', 'user_address', 'chosen_block_hash', 'withdrawal_index', 'ip_address', 'nonce', 'pow_nonce', 'message']
         else:
             # Original Faucet still uses EIP-712 signatures
             required_fields = ['network', 'user_address', 'v', 'r', 's', 'message']
@@ -169,7 +169,8 @@ def request_withdrawal():
                 chosen_block_hash = data['chosen_block_hash']
                 withdrawal_index = int(data['withdrawal_index'])
                 ip_address = data['ip_address']
-                nonce = int(data['nonce'])
+                nonce = int(data['nonce'])  # Anti-replay nonce (used for EIP-712 signature)
+                pow_nonce = int(data['pow_nonce'])  # PoW nonce (used for PoW validation)
                 # Parse signature components for server authorization
                 v = int(data['v'])
                 r = data['r']  
@@ -177,7 +178,9 @@ def request_withdrawal():
                 block_hash_preview = chosen_block_hash[:10] + "..." if chosen_block_hash else "None"
                 r_preview = r[:10] + "..." if r else "None"
                 s_preview = s[:10] + "..." if s else "None"
-                logging.info(f"🚀 DevFaucet - PoW components: block_hash={block_hash_preview}, index={withdrawal_index}, nonce={nonce}")
+                logging.info(f"🚀 DevFaucet - PoW components: block_hash={block_hash_preview}, index={withdrawal_index}")
+                logging.info(f"🔐 Anti-replay nonce: {nonce} (used for EIP-712 signature)")
+                logging.info(f"⛏️ PoW nonce: {pow_nonce} (used for PoW validation)")
                 logging.info(f"DevFaucet signature components: v={v}, r={r_preview}, s={s_preview}")
                 logging.info(f"Message: {message}")
             else:
@@ -287,13 +290,34 @@ def request_withdrawal():
                     logging.error(f"Message mismatch! Expected: '{expected_message}', Got: '{message}'")
                     return jsonify({'error': 'Incorrect message', 'expected': expected_message, 'provided': message}), 400
                 
+                # Check the actual anti-replay nonce from the contract first
+                try:
+                    actual_contract_nonce = faucet_contract.functions.nonce(user_address).call()
+                    logging.info(f"🔍 DEBUGGING: Actual contract nonce for {user_address}: {actual_contract_nonce}")
+                    logging.info(f"🔍 DEBUGGING: Anti-replay nonce from frontend: {nonce}")
+                    logging.info(f"🔍 DEBUGGING: PoW nonce from frontend: {pow_nonce}")
+                    if nonce != actual_contract_nonce:
+                        logging.warning(f"⚠️ Nonce mismatch! Frontend: {nonce}, Contract: {actual_contract_nonce}")
+                        logging.info(f"🔄 Will try using contract nonce {actual_contract_nonce} instead")
+                        # Use the actual contract nonce for both signature verification and contract call
+                        contract_nonce = actual_contract_nonce
+                    else:
+                        contract_nonce = nonce
+                except Exception as debug_err:
+                    logging.error(f"Could not fetch contract nonce for debugging: {debug_err}")
+                    contract_nonce = nonce  # Fallback to frontend nonce
+                
                 # Verify DevFaucet EIP-712 signature
                 logging.info("Verifying DevFaucet user authorization signature...")
                 logging.info(f"Server EIP-712 domain values: chainId={config['chain_id']}, contract={faucet_address}")
                 try:
                     from eth_account.messages import encode_typed_data
                     
-                    # Reconstruct the EIP-712 message that was signed
+                    # Use the contract nonce for signature verification
+                    # We'll try the actual contract nonce if there was a mismatch
+                    logging.info(f"Using nonce {contract_nonce} for EIP-712 verification and contract call")
+                    
+                    # Reconstruct the EIP-712 message that was signed (using anti-replay nonce)
                     domain_data = {
                         "name": "DevFaucet",
                         "version": "1",
@@ -317,7 +341,7 @@ def request_withdrawal():
                         "chosenBlockHash": chosen_block_hash,
                         "withdrawalIndex": withdrawal_index,
                         "ipAddress": ip_address,
-                        "nonce": nonce,
+                        "nonce": contract_nonce,  # Use contract nonce (might be different from frontend)
                         "message": message
                     }
                     
@@ -326,7 +350,7 @@ def request_withdrawal():
                     logging.info(f"  chosenBlockHash: {chosen_block_hash}")
                     logging.info(f"  withdrawalIndex: {withdrawal_index}")
                     logging.info(f"  ipAddress: {ip_address}")
-                    logging.info(f"  nonce: {nonce}")
+                    logging.info(f"  nonce: {contract_nonce} (contract nonce)")
                     logging.info(f"  message: {message}")
                     
                     # Encode and verify the signature
@@ -428,13 +452,15 @@ def request_withdrawal():
             # Build the transaction based on faucet type
             if is_dev_faucet:
                 # DevFaucetServer gasless requestWithdrawal call - NEW WITHDRAWFOR VERSION
+                # Use the same nonce that was used for signature verification
+                logging.info(f"Sending nonce {contract_nonce} to contract")
                 txn = backend_contract.functions.requestWithdrawal(
                     faucet_address,      # _faucet: DevFaucet contract address
                     user_address,        # _user: recipient address
                     chosen_block_hash,   # _chosen_block_hash
                     withdrawal_index,    # _withdrawal_index
                     ip_address,          # _ip_address
-                    nonce,               # _nonce
+                    contract_nonce,      # _nonce: Use same nonce as signature verification
                     message,             # _message
                     v,                   # _v: signature component
                     r,                   # _r: signature component
