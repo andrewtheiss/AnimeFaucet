@@ -455,7 +455,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       if (!isDevFaucet) {
         // Original Faucet: EIP-712 signing required
         const domain = {
-          name: "Faucet",
+          name: "DevFaucet",
           version: "1",
           chainId: parseInt(networkConfig.chainId, 16), // Convert hex chainId to decimal
           verifyingContract: contractAddress
@@ -505,12 +505,12 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           const domain = {
             name: 'DevFaucet',
             version: '1',
-            chainId: networkConfig.chainId,
+            chainId: parseInt(networkConfig.chainId, 16),
             verifyingContract: contractAddress
           };
           
           const types = {
-            DevFaucetRequest: [
+            WithdrawalRequest: [
               { name: 'recipient', type: 'address' },
               { name: 'chosenBlockHash', type: 'bytes32' },
               { name: 'withdrawalIndex', type: 'uint256' },
@@ -520,7 +520,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
             ]
           };
           
-          const message = {
+          const value = {
             recipient: account,
             chosenBlockHash: powData.chosenBlockHash,
             withdrawalIndex: powData.withdrawalIndex,
@@ -530,10 +530,10 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           };
           
           console.log("Frontend EIP-712 domain:", domain);
-          console.log("Frontend EIP-712 message values:", message);
-          console.log("Signing DevFaucet EIP-712 authorization:", { domain, types, message });
+          console.log("Frontend EIP-712 message values:", value);
+          console.log("Signing DevFaucet EIP-712 authorization:", { domain, types, value });
           
-          const signature = await signer.signTypedData(domain, types, message);
+          const signature = await signer.signTypedData(domain, types, value);
           console.log("DevFaucet authorization signature obtained:", signature);
           sig = ethers.Signature.from(signature);
           

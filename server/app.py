@@ -44,7 +44,7 @@ NETWORK_CONFIG = {
     'testnet': {
         'rpc_url': 'https://testnet-rpc.anime.xyz/',
         'chain_id': 6900,
-        'faucet_address': '0x7C861990f58d1dBF0D11201e840ed8f452966eFd',  # DevFaucet address - UPDATED
+        'faucet_address': '0xa7431C5525a32d15C38bF6FA3778ef4915695AD2',  # DevFaucet address - UPDATED
         'backend_address': '0xeD0CDF685f61acCc84b0ACb43Aad362c633CDCA0', # DevFaucetServer address - to be updated  
         'block_explorer_url': 'https://explorer-animechain-testnet-i8yja6a1a0.t.conduit.xyz/',
         'faucet_type': 'dev'  # Indicates this uses the dev faucet (proof-of-work)
@@ -302,7 +302,7 @@ def request_withdrawal():
                     }
                     
                     message_types = {
-                        "DevFaucetRequest": [
+                        "WithdrawalRequest": [
                             {"name": "recipient", "type": "address"},
                             {"name": "chosenBlockHash", "type": "bytes32"},
                             {"name": "withdrawalIndex", "type": "uint256"},

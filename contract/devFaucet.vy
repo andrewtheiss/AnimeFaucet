@@ -100,7 +100,7 @@ def deposit():
 def _build_domain_separator() -> bytes32:
     return keccak256(concat(
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-        keccak256("DevFaucet"),
+        keccak256("Faucet"),
         keccak256("1"),
         convert(chain.id, bytes32),
         convert(self, bytes32)
@@ -215,9 +215,6 @@ def _execute_withdrawal(
         # Subsequent requests - verify IP matches
         assert _ip_address == user_ip_hash, "IP address must remain consistent"
     
-    # Validate nonce for replay protection
-    assert _nonce == self.nonce[_user], "Invalid nonce"
-    
     # Note: Block validation will be done by frontend/server since we can't easily extract block number from hash
     # The PoW validation provides sufficient security by requiring recent block hashes
     chosen_block_num: uint256 = current_block  # Use current block as reference for now
@@ -257,7 +254,6 @@ def _execute_withdrawal(
     assert self.balance >= withdrawal_amount + GAS_RESERVE, "Insufficient contract balance"
     
     # Update user state
-    self.nonce[_user] += 1
     self.withdrawal_count[_user] = current_count + 1
     self.last_successful_block[_user] = chosen_block_num
     self.last_global_withdrawal = current_time
