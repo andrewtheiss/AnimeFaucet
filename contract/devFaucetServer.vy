@@ -1,8 +1,9 @@
 #pragma version >0.4.0
 
-# Interface for the DevFaucet contract with single signature (no EIP-712)
+# Interface for the DevFaucet contract with gasless withdrawFor function
 interface DevFaucet:
     def withdraw(_chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _nonce: uint256, _message: String[103]): nonpayable
+    def withdrawFor(_recipient: address, _chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _nonce: uint256, _message: String[103], _v: uint256, _r: bytes32, _s: bytes32): nonpayable
 
 # Storage variables
 owner: public(address)
@@ -18,11 +19,40 @@ def __init__():
 def deposit():
     pass
 
-# Function to request a withdrawal from the devFaucet on behalf of a user
-# This handles the proof-of-work parameters and message for single signature
-# Anyone can call this if they have valid PoW - the DevFaucet contract handles all validation
+# GASLESS WITHDRAWAL: Server calls withdrawFor on behalf of user with their signature
 @external
 def requestWithdrawal(
+    _faucet: address,
+    _user: address,
+    _chosen_block_hash: bytes32,
+    _withdrawal_index: uint256,
+    _ip_address: bytes32,
+    _nonce: uint256,
+    _message: String[103],
+    _v: uint256,
+    _r: bytes32,
+    _s: bytes32
+):
+    # Call the DevFaucet's withdrawFor function with user's signature
+    # The DevFaucet contract will:
+    # 1. Verify the EIP-712 signature is from _user
+    # 2. Validate PoW using _user address (not msg.sender)
+    # 3. Transfer tokens directly to _user
+    extcall DevFaucet(_faucet).withdrawFor(
+        _user,
+        _chosen_block_hash,
+        _withdrawal_index,
+        _ip_address,
+        _nonce,
+        _message,
+        _v,
+        _r,
+        _s
+    )
+
+# LEGACY: Direct withdrawal (for backwards compatibility)
+@external
+def requestWithdrawalDirect(
     _faucet: address, 
     _chosen_block_hash: bytes32, 
     _withdrawal_index: uint256, 
@@ -30,8 +60,8 @@ def requestWithdrawal(
     _nonce: uint256, 
     _message: String[103]
 ):
-    # Anyone can request withdrawals if they have valid PoW + message
-    # The DevFaucet contract will validate the proof-of-work and message
+    # Legacy function - calls withdraw directly (user pays gas)
+    # This will use msg.sender for PoW validation
     extcall DevFaucet(_faucet).withdraw(
         _chosen_block_hash, 
         _withdrawal_index, 

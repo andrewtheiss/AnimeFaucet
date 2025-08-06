@@ -860,15 +860,15 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
   };
 
   const calculatePowHash = (userAddress, blockHash, withdrawalIndex, ipAddressHash, nonce) => {
-    // Convert all inputs to bytes and concatenate
-    const userBytes = ethers.getBytes(userAddress);
+    // Convert inputs to match contract's PoW calculation exactly
+    // Contract order: _chosen_block_hash + convert(_user, bytes20) + _ip_address + convert(_nonce, bytes32)
     const blockHashBytes = ethers.getBytes(blockHash);
-    const indexBytes = ethers.zeroPadValue(ethers.toBeHex(withdrawalIndex), 32);
+    const userBytes = ethers.getBytes(userAddress); // This is 20 bytes (address)
     const ipBytes = ethers.getBytes(ipAddressHash);
     const nonceBytes = ethers.zeroPadValue(ethers.toBeHex(nonce), 32);
     
-    // Concatenate all bytes
-    const combinedBytes = ethers.concat([userBytes, blockHashBytes, indexBytes, ipBytes, nonceBytes]);
+    // Concatenate in contract order: blockHash + user + ip + nonce (NO withdrawal_index!)
+    const combinedBytes = ethers.concat([blockHashBytes, userBytes, ipBytes, nonceBytes]);
     
     // Return keccak256 hash
     return ethers.keccak256(combinedBytes);
@@ -991,59 +991,24 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         const hashValue = BigInt(powHash);
         
         if (hashValue % BigInt(difficultyTarget) === 0n) {
-          // Found potential solution - verify with contract to be sure
-          try {
-            const isValid = await contract.validate_hash(
-              account,
-              chosenBlockHash,
-              withdrawalIndex,
-              ipAddressHash,
-              nonce,
-              difficultyTarget
-            );
-            
-            if (isValid) {
-              found = true;
-              const miningTime = (Date.now() - startTime) / 1000;
-              console.log(`PoW found! Nonce: ${nonce}, Hash: ${powHash}, Time: ${miningTime.toFixed(2)}s`);
-              
-              // Store the PoW data
-              setPowData({
-                chosenBlockHash,
-                withdrawalIndex,
-                ipAddressHash,
-                nonce,
-                powHash,
-                difficultyTarget,
-                miningTime
-              });
-              
-              setPowComplete(true);
-              setPowProgress(100);
-            } else {
-              console.warn('Local validation passed but contract validation failed for nonce:', nonce);
-              nonce++;
-            }
-          } catch (contractError) {
-            console.error('Contract validation error:', contractError.message);
-            // Trust local validation if contract call fails
-            found = true;
-            const miningTime = (Date.now() - startTime) / 1000;
-            console.log(`PoW found (local validation)! Nonce: ${nonce}, Hash: ${powHash}, Time: ${miningTime.toFixed(2)}s`);
-            
-            setPowData({
-              chosenBlockHash,
-              withdrawalIndex,
-              ipAddressHash,
-              nonce,
-              powHash,
-              difficultyTarget,
-              miningTime
-            });
-            
-            setPowComplete(true);
-            setPowProgress(100);
-          }
+          // Found valid PoW solution
+          found = true;
+          const miningTime = (Date.now() - startTime) / 1000;
+          console.log(`PoW found! Nonce: ${nonce}, Hash: ${powHash}, Time: ${miningTime.toFixed(2)}s`);
+          
+          // Store the PoW data
+          setPowData({
+            chosenBlockHash,
+            withdrawalIndex,
+            ipAddressHash,
+            nonce,
+            powHash,
+            difficultyTarget,
+            miningTime
+          });
+          
+          setPowComplete(true);
+          setPowProgress(100);
         } else {
           nonce++;
           
