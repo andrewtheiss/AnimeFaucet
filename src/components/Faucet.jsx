@@ -29,6 +29,14 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
   const [timerInitialized, setTimerInitialized] = useState(false);
   const [lastTxHash, setLastTxHash] = useState('');
   
+  // Admin state variables
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [contractOwner, setContractOwner] = useState('');
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [adminLoading, setAdminLoading] = useState(false);
+  const [adminError, setAdminError] = useState('');
+  const [adminSuccess, setAdminSuccess] = useState('');
+  
   // PoW mining state variables
   const [powMining, setPowMining] = useState(false);
   const [powComplete, setPowComplete] = useState(false);
@@ -46,6 +54,9 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
   const isDevFaucet = network === 'animechain_testnet'; // Use devFaucet on AnimeChain testnet
   const contractABI = isDevFaucet ? DEV_FAUCET_ABI : FAUCET_ABI;
   const explorerUrl = `${networkConfig.blockExplorerUrls[0]}address/${account}`;
+  
+  // Get max withdrawals based on faucet type
+  const maxWithdrawals = isDevFaucet ? 8 : 3;
   
   // Server network mapping for localhost server
   const getServerNetwork = (uiNetwork) => {
@@ -155,6 +166,24 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     }
   };
 
+  const checkAdminStatus = async (currentAccount = null, currentContract = null) => {
+    const contractToUse = currentContract || contract;
+    const accountToUse = currentAccount || account;
+    
+    if (!contractToUse || !accountToUse) return;
+    
+    try {
+      const owner = await contractToUse.owner();
+      setContractOwner(owner);
+      const isOwner = owner.toLowerCase() === accountToUse.toLowerCase();
+      setIsAdmin(isOwner);
+      console.log('Admin check:', { owner, account: accountToUse, isAdmin: isOwner });
+    } catch (err) {
+      console.error('Error checking admin status:', err);
+      setIsAdmin(false);
+    }
+  };
+
   const updateInfo = async (currentAccount = null, currentContract = null) => {
     // Use parameters if provided, otherwise fall back to state values
     const contractToUse = currentContract || contract;
@@ -182,12 +211,17 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         const calculatedCooldown = calculateCooldown();
         setCooldown(calculatedCooldown);
         
-        // Get the last recipient if we're checking cooldown
-        try {
-          const recipient = await contractToUse.last_recipient();
-          setLastRecipient(recipient);
-        } catch (recipientErr) {
-          console.error("Error getting last recipient:", recipientErr);
+        // Get the last recipient if we're checking cooldown (only for regular faucet)
+        if (!isDevFaucet) {
+          try {
+            const recipient = await contractToUse.last_recipient();
+            setLastRecipient(recipient);
+          } catch (recipientErr) {
+            console.error("Error getting last recipient:", recipientErr);
+          }
+        } else {
+          // DevFaucet doesn't have last_recipient, set to empty
+          setLastRecipient("");
         }
       }
       
@@ -200,6 +234,9 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         const count = await contractToUse.get_withdrawal_count(accountToUse);
         console.log("Account withdrawal count:", Number(count));
         setWithdrawalCount(Number(count));
+        
+        // Check admin status
+        await checkAdminStatus(accountToUse, contractToUse);
         
         try {
           const message = await contractToUse.get_expected_message(accountToUse);
@@ -288,12 +325,17 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         const calculatedCooldown = calculateCooldown();
         setCooldown(calculatedCooldown);
         
-        // Get the last recipient
-        try {
-          const recipient = await contract.last_recipient();
-          setLastRecipient(recipient);
-        } catch (recipientErr) {
-          console.error("Error getting last recipient:", recipientErr);
+        // Get the last recipient (only for regular faucet)
+        if (!isDevFaucet) {
+          try {
+            const recipient = await contract.last_recipient();
+            setLastRecipient(recipient);
+          } catch (recipientErr) {
+            console.error("Error getting last recipient:", recipientErr);
+          }
+        } else {
+          // DevFaucet doesn't have last_recipient, set to empty
+          setLastRecipient("");
         }
         
         setTimerInitialized(true);
@@ -328,11 +370,17 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       setLastWithdrawal(lastWithdrawalTime.toString());
       setCooldown(COOLDOWN_PERIOD.toString());
       
-      try {
-        const recipient = await contract.last_recipient();
-        setLastRecipient(recipient);
-      } catch (recipientErr) {
-        console.error("Error getting last recipient:", recipientErr);
+      // Get the last recipient (only for regular faucet)
+      if (!isDevFaucet) {
+        try {
+          const recipient = await contract.last_recipient();
+          setLastRecipient(recipient);
+        } catch (recipientErr) {
+          console.error("Error getting last recipient:", recipientErr);
+        }
+      } else {
+        // DevFaucet doesn't have last_recipient, set to empty
+        setLastRecipient("");
       }
     } catch (err) {
       console.error("Error resetting cooldown:", err);
@@ -512,6 +560,23 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         // For subsequent DevFaucet withdrawals, use direct contract interaction
         console.log("Using PoW data for devFaucet withdrawal:", powData);
         
+        // First try to estimate gas to catch any revert reasons
+        try {
+          const gasEstimate = await contractWithSigner.withdraw.estimateGas(
+            powData.chosenBlockHash,
+            powData.withdrawalIndex,
+            powData.ipAddressHash,
+            powData.nonce,
+            sig.v,
+            sig.r,
+            sig.s
+          );
+          console.log("Gas estimate successful:", gasEstimate.toString());
+        } catch (estimateError) {
+          console.error("Gas estimation failed - transaction would revert:", estimateError);
+          throw new Error(`Transaction would fail: ${estimateError.reason || estimateError.message}`);
+        }
+        
         // Call devFaucet withdraw with PoW parameters
         const tx = await contractWithSigner.withdraw(
           powData.chosenBlockHash,
@@ -568,15 +633,40 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       if (!refillAmount || parseFloat(refillAmount) <= 0) throw new Error('Please enter a valid amount');
       setLoading(true);
       setError('');
+      
       const signer = await provider.getSigner();
       const contractWithSigner = contract.connect(signer);
       const amountInWei = ethers.parseEther(refillAmount);
+      
+      // Check if user has enough balance
+      const userBalanceWei = await provider.getBalance(account);
+      console.log(`User balance: ${ethers.formatEther(userBalanceWei)} ${networkConfig.nativeCurrency.symbol}`);
+      console.log(`Trying to deposit: ${refillAmount} ${networkConfig.nativeCurrency.symbol}`);
+      
+      if (userBalanceWei < amountInWei) {
+        throw new Error(`Insufficient balance. You have ${ethers.formatEther(userBalanceWei)} ${networkConfig.nativeCurrency.symbol} but trying to deposit ${refillAmount} ${networkConfig.nativeCurrency.symbol}`);
+      }
+      
+      // Estimate gas first to catch any contract-level issues
+      try {
+        const gasEstimate = await contractWithSigner.deposit.estimateGas({ value: amountInWei });
+        console.log(`Gas estimate: ${gasEstimate.toString()}`);
+      } catch (estimateError) {
+        console.error('Gas estimation failed:', estimateError);
+        throw new Error(`Transaction would fail: ${estimateError.message || 'Unknown reason'}. Check that the contract address is correct and you have enough balance.`);
+      }
+      
       const tx = await contractWithSigner.deposit({ value: amountInWei });
+      console.log('Deposit transaction submitted:', tx.hash);
       await tx.wait();
+      console.log('Deposit transaction confirmed!');
+      
       setRefillAmount('');
       setShowRefill(false);
+      setSuccessMessage(`Successfully deposited ${refillAmount} ${networkConfig.nativeCurrency.symbol} to the faucet!`);
       await updateInfo(account, contract);
     } catch (err) {
+      console.error('Refill error:', err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -621,7 +711,19 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     return ethers.keccak256(ethers.toUtf8Bytes(combinedData));
   };
 
-  const getDifficultyTarget = (withdrawalIndex) => {
+  const getDifficultyTarget = async (withdrawalIndex) => {
+    // Get the actual difficulty target from the contract (includes multipliers)
+    if (contract && isDevFaucet) {
+      try {
+        const contractDifficulty = await contract.get_difficulty_target(withdrawalIndex);
+        return Number(contractDifficulty);
+      } catch (err) {
+        console.error('Error getting difficulty target from contract:', err);
+        // Fallback to hardcoded values
+      }
+    }
+    
+    // Fallback to hardcoded values if contract call fails
     const targets = [8000, 8000, 8000, 8000, 16000, 32000, 64000, 128000];
     return targets[withdrawalIndex - 1] || 8000;
   };
@@ -641,7 +743,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     return ethers.keccak256(combinedBytes);
   };
 
-  // PoW Mining Function
+  // PoW Mining Function with Pure Contract Validation 
   const startPowMining = async () => {
     if (!contract || !account) {
       setError('Contract or account not available');
@@ -659,7 +761,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       const withdrawalIndex = withdrawalCount + 1;
       
       // Get difficulty target for this withdrawal
-      const difficultyTarget = getDifficultyTarget(withdrawalIndex);
+      const difficultyTarget = await getDifficultyTarget(withdrawalIndex);
       
       // Get recent block hash
       const latestBlock = await provider.getBlock('latest');
@@ -668,55 +770,101 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       // Get IP address hash
       const ipAddressHash = await getIpAddressHash();
       
-      console.log('Starting PoW mining...', {
+      console.log('Starting PoW mining with pure contract validation...', {
         withdrawalIndex,
         difficultyTarget,
         chosenBlockHash,
         ipAddressHash: ipAddressHash.substring(0, 10) + '...'
       });
 
-      // Mining loop
+      // Store initial mining data for UI display
+      setPowData({
+        chosenBlockHash,
+        withdrawalIndex,
+        ipAddressHash,
+        difficultyTarget,
+        nonce: 0,
+        powHash: null,
+        miningTime: 0
+      });
+
+      // Mining loop using local validation for speed
       let nonce = 0;
       let found = false;
       const startTime = Date.now();
+      const batchSize = 1000; // Check more nonces locally before UI update
       
       while (!found) {
-        // Calculate hash for this nonce
+        // Local validation is much faster - do this first
         const powHash = calculatePowHash(account, chosenBlockHash, withdrawalIndex, ipAddressHash, nonce);
         const hashValue = BigInt(powHash);
         
-        // Check if hash meets difficulty requirement
         if (hashValue % BigInt(difficultyTarget) === 0n) {
-          found = true;
-          
-          const miningTime = (Date.now() - startTime) / 1000;
-          console.log(`PoW found! Nonce: ${nonce}, Hash: ${powHash}, Time: ${miningTime.toFixed(2)}s`);
-          
-          // Store the PoW data
-          setPowData({
-            chosenBlockHash,
-            withdrawalIndex,
-            ipAddressHash,
-            nonce,
-            powHash,
-            difficultyTarget,
-            miningTime
-          });
-          
-          setPowComplete(true);
-          setPowProgress(100);
+          // Found potential solution - verify with contract to be sure
+          try {
+            const isValid = await contract.validate_hash(
+              account,
+              chosenBlockHash,
+              withdrawalIndex,
+              ipAddressHash,
+              nonce,
+              difficultyTarget
+            );
+            
+            if (isValid) {
+              found = true;
+              const miningTime = (Date.now() - startTime) / 1000;
+              console.log(`PoW found! Nonce: ${nonce}, Hash: ${powHash}, Time: ${miningTime.toFixed(2)}s`);
+              
+              // Store the PoW data
+              setPowData({
+                chosenBlockHash,
+                withdrawalIndex,
+                ipAddressHash,
+                nonce,
+                powHash,
+                difficultyTarget,
+                miningTime
+              });
+              
+              setPowComplete(true);
+              setPowProgress(100);
+            } else {
+              console.warn('Local validation passed but contract validation failed for nonce:', nonce);
+              nonce++;
+            }
+          } catch (contractError) {
+            console.error('Contract validation error:', contractError.message);
+            // Trust local validation if contract call fails
+            found = true;
+            const miningTime = (Date.now() - startTime) / 1000;
+            console.log(`PoW found (local validation)! Nonce: ${nonce}, Hash: ${powHash}, Time: ${miningTime.toFixed(2)}s`);
+            
+            setPowData({
+              chosenBlockHash,
+              withdrawalIndex,
+              ipAddressHash,
+              nonce,
+              powHash,
+              difficultyTarget,
+              miningTime
+            });
+            
+            setPowComplete(true);
+            setPowProgress(100);
+          }
         } else {
           nonce++;
           
-          // Update progress every 1000 iterations
-          if (nonce % 1000 === 0) {
+          // Update progress every batch
+          if (nonce % batchSize === 0) {
             const elapsed = Date.now() - startTime;
             const rate = nonce / (elapsed / 1000);
             const estimatedTotal = difficultyTarget;
             const progressPercent = Math.min((nonce / estimatedTotal) * 100, 99);
             setPowProgress(progressPercent);
             
-            // Allow UI to update
+            // Allow UI to update less frequently
             await new Promise(resolve => setTimeout(resolve, 1));
           }
           
@@ -747,9 +895,430 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     }
   }, [withdrawalCount, isDevFaucet]);
 
+  // Admin Functions
+  const handleUpdateWithdrawalAmount = async (index, amount) => {
+    if (!isAdmin || !contract) return;
+    
+    try {
+      setAdminLoading(true);
+      setAdminError('');
+      setAdminSuccess('');
+      
+      const signer = await provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
+      
+      // Convert amount to wei
+      const amountInWei = ethers.parseEther(amount.toString());
+      
+      const tx = await contractWithSigner.updateWithdrawalAmount(index, amountInWei);
+      await tx.wait();
+      
+      setAdminSuccess(`Successfully updated withdrawal amount for index ${index} to ${amount} tokens`);
+      await updateInfo(); // Refresh contract info
+    } catch (err) {
+      console.error('Error updating withdrawal amount:', err);
+      setAdminError(`Failed to update withdrawal amount: ${err.message}`);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleUpdatePowDifficulty = async (index, difficulty) => {
+    if (!isAdmin || !contract) return;
+    
+    try {
+      setAdminLoading(true);
+      setAdminError('');
+      setAdminSuccess('');
+      
+      const signer = await provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
+      
+      const tx = await contractWithSigner.updatePowDifficulty(index, difficulty);
+      await tx.wait();
+      
+      setAdminSuccess(`Successfully updated PoW difficulty for index ${index} to ${difficulty}`);
+      await updateInfo(); // Refresh contract info
+    } catch (err) {
+      console.error('Error updating PoW difficulty:', err);
+      setAdminError(`Failed to update PoW difficulty: ${err.message}`);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleUpdateCooldownPeriod = async (period) => {
+    if (!isAdmin || !contract) return;
+    
+    try {
+      setAdminLoading(true);
+      setAdminError('');
+      setAdminSuccess('');
+      
+      const signer = await provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
+      
+      const tx = await contractWithSigner.updateCooldownPeriod(period);
+      await tx.wait();
+      
+      setAdminSuccess(`Successfully updated cooldown period to ${period} seconds`);
+      await updateInfo(); // Refresh contract info
+    } catch (err) {
+      console.error('Error updating cooldown period:', err);
+      setAdminError(`Failed to update cooldown period: ${err.message}`);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleUpdateBaseAmountMultiplier = async (multiplier) => {
+    if (!isAdmin || !contract) return;
+    
+    try {
+      setAdminLoading(true);
+      setAdminError('');
+      setAdminSuccess('');
+      
+      const signer = await provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
+      
+      const tx = await contractWithSigner.updateBaseAmountMultiplier(multiplier);
+      await tx.wait();
+      
+      const displayMultiplier = (multiplier / 1000).toFixed(2);
+      setAdminSuccess(`Successfully updated base amount multiplier to ${displayMultiplier}x`);
+      await updateInfo(); // Refresh contract info
+    } catch (err) {
+      console.error('Error updating base amount multiplier:', err);
+      setAdminError(`Failed to update base amount multiplier: ${err.message}`);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleUpdateBaseDifficultyMultiplier = async (multiplier) => {
+    if (!isAdmin || !contract) return;
+    
+    try {
+      setAdminLoading(true);
+      setAdminError('');
+      setAdminSuccess('');
+      
+      const signer = await provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
+      
+      const tx = await contractWithSigner.updateBaseDifficultyMultiplier(multiplier);
+      await tx.wait();
+      
+      const displayMultiplier = (multiplier / 1000).toFixed(2);
+      setAdminSuccess(`Successfully updated base difficulty multiplier to ${displayMultiplier}x`);
+      await updateInfo(); // Refresh contract info
+    } catch (err) {
+      console.error('Error updating base difficulty multiplier:', err);
+      setAdminError(`Failed to update base difficulty multiplier: ${err.message}`);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
+  const handleDirectWithdrawal = async () => {
+    if (!isAdmin || !contract || !isDevFaucet) return;
+    
+    try {
+      setAdminLoading(true);
+      setAdminError('');
+      setAdminSuccess('');
+      
+      if (!powComplete || !powData) {
+        setAdminError('Please complete proof-of-work mining first');
+        return;
+      }
+      
+      const signer = await provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
+      
+      // Build EIP-712 signature for admin withdrawal
+      const domain = {
+        name: "Faucet",
+        version: "1",
+        chainId: parseInt(networkConfig.chainId, 16),
+        verifyingContract: contractAddress
+      };
+      
+      const types = {
+        FaucetRequest: [
+          { name: "recipient", type: "address" },
+          { name: "message", type: "string" },
+          { name: "nonce", type: "uint256" }
+        ]
+      };
+      
+      const messageToSign = expectedMessage || DEV_FAUCET_MESSAGES[withdrawalCount] || "Admin test withdrawal";
+      
+      const message = {
+        recipient: account,
+        message: messageToSign,
+        nonce: Number(nonce)
+      };
+      
+      const signature = await signer.signTypedData(domain, types, message);
+      const sig = ethers.Signature.from(signature);
+      
+      console.log('Admin direct withdrawal with PoW data:', powData);
+      
+      // Call devFaucet withdraw directly
+      const tx = await contractWithSigner.withdraw(
+        powData.chosenBlockHash,
+        powData.withdrawalIndex,
+        powData.ipAddressHash,
+        powData.nonce,
+        sig.v,
+        sig.r,
+        sig.s
+      );
+      
+      console.log("Admin direct withdrawal transaction submitted:", tx.hash);
+      await tx.wait();
+      console.log("Admin direct withdrawal transaction confirmed!");
+      
+      setAdminSuccess(`Direct withdrawal successful! Transaction: ${tx.hash.substring(0, 10)}...`);
+      
+      // Reset PoW state after successful withdrawal
+      setPowComplete(false);
+      setPowData(null);
+      setPowProgress(0);
+      
+      // Update contract info
+      await updateInfo();
+      await updateUserBalance();
+      
+    } catch (err) {
+      console.error('Error with direct withdrawal:', err);
+      setAdminError(`Direct withdrawal failed: ${err.message}`);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
   const isTestnet = network === 'animechain_testnet';
   
+  // Admin Panel Component
+  const AdminPanel = ({ onUpdateWithdrawalAmount, onUpdatePowDifficulty, onUpdateCooldownPeriod, onUpdateBaseAmountMultiplier, onUpdateBaseDifficultyMultiplier, onDirectWithdrawal, loading }) => {
+    const [withdrawalIndex, setWithdrawalIndex] = useState(1);
+    const [withdrawalAmount, setWithdrawalAmount] = useState('');
+    const [difficultyIndex, setDifficultyIndex] = useState(1);
+    const [difficultyValue, setDifficultyValue] = useState('');
+    const [cooldownPeriod, setCooldownPeriod] = useState('');
+    const [baseAmountMultiplier, setBaseAmountMultiplier] = useState('');
+    const [baseDifficultyMultiplier, setBaseDifficultyMultiplier] = useState('');
 
+    const handleWithdrawalAmountSubmit = (e) => {
+      e.preventDefault();
+      if (withdrawalAmount && withdrawalIndex >= 1 && withdrawalIndex <= 8) {
+        onUpdateWithdrawalAmount(withdrawalIndex, withdrawalAmount);
+        setWithdrawalAmount('');
+      }
+    };
+
+    const handleDifficultySubmit = (e) => {
+      e.preventDefault();
+      if (difficultyValue && difficultyIndex >= 1 && difficultyIndex <= 8) {
+        onUpdatePowDifficulty(difficultyIndex, parseInt(difficultyValue));
+        setDifficultyValue('');
+      }
+    };
+
+    const handleCooldownSubmit = (e) => {
+      e.preventDefault();
+      if (cooldownPeriod !== '') {
+        onUpdateCooldownPeriod(parseInt(cooldownPeriod));
+        setCooldownPeriod('');
+      }
+    };
+
+    const handleBaseAmountMultiplierSubmit = (e) => {
+      e.preventDefault();
+      if (baseAmountMultiplier !== '') {
+        // Convert decimal to integer (1.5 -> 1500)
+        const multiplierInt = Math.round(parseFloat(baseAmountMultiplier) * 1000);
+        onUpdateBaseAmountMultiplier(multiplierInt);
+        setBaseAmountMultiplier('');
+      }
+    };
+
+    const handleBaseDifficultyMultiplierSubmit = (e) => {
+      e.preventDefault();
+      if (baseDifficultyMultiplier !== '') {
+        // Convert decimal to integer (1.5 -> 1500)
+        const multiplierInt = Math.round(parseFloat(baseDifficultyMultiplier) * 1000);
+        onUpdateBaseDifficultyMultiplier(multiplierInt);
+        setBaseDifficultyMultiplier('');
+      }
+    };
+
+    return (
+      <div className="admin-panel-content">
+        <div className="admin-section">
+          <h4>💰 Update Withdrawal Amount</h4>
+          <form onSubmit={handleWithdrawalAmountSubmit} className="admin-form">
+            <div className="form-row">
+              <select 
+                value={withdrawalIndex} 
+                onChange={(e) => setWithdrawalIndex(parseInt(e.target.value))}
+                className="admin-select"
+              >
+                {[1,2,3,4,5,6,7,8].map(i => (
+                  <option key={i} value={i}>Index {i} (currently {[5,5,10,15,25,50,75,100][i-1]} tokens)</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={withdrawalAmount}
+                onChange={(e) => setWithdrawalAmount(e.target.value)}
+                placeholder="New amount (tokens)"
+                className="admin-input"
+                min="0"
+                step="0.1"
+              />
+              <button type="submit" disabled={loading || !withdrawalAmount} className="admin-button">
+                Update Amount
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div className="admin-section">
+          <h4>⛏️ Update PoW Difficulty</h4>
+          <form onSubmit={handleDifficultySubmit} className="admin-form">
+            <div className="form-row">
+              <select 
+                value={difficultyIndex} 
+                onChange={(e) => setDifficultyIndex(parseInt(e.target.value))}
+                className="admin-select"
+              >
+                {[1,2,3,4,5,6,7,8].map(i => (
+                  <option key={i} value={i}>Index {i} (currently {[8000,8000,8000,8000,16000,32000,64000,128000][i-1]})</option>
+                ))}
+              </select>
+              <input
+                type="number"
+                value={difficultyValue}
+                onChange={(e) => setDifficultyValue(e.target.value)}
+                placeholder="New difficulty"
+                className="admin-input"
+                min="1000"
+                step="1000"
+              />
+              <button type="submit" disabled={loading || !difficultyValue} className="admin-button">
+                Update Difficulty
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div className="admin-section">
+          <h4>⏰ Update Cooldown Period</h4>
+          <form onSubmit={handleCooldownSubmit} className="admin-form">
+            <div className="form-row">
+              <input
+                type="number"
+                value={cooldownPeriod}
+                onChange={(e) => setCooldownPeriod(e.target.value)}
+                placeholder="Cooldown period (seconds, 0 = no cooldown)"
+                className="admin-input"
+                min="0"
+                step="1"
+              />
+              <button type="submit" disabled={loading || cooldownPeriod === ''} className="admin-button">
+                Update Cooldown
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div className="admin-section multiplier-section">
+          <h4>🎯 Global Multipliers</h4>
+          
+          <div className="multiplier-subsection">
+            <h5>💰 Base Amount Multiplier</h5>
+            <p className="multiplier-info">Multiplies all withdrawal amounts (1.0 = default, 2.0 = double amounts)</p>
+            <form onSubmit={handleBaseAmountMultiplierSubmit} className="admin-form">
+              <div className="form-row">
+                <input
+                  type="number"
+                  value={baseAmountMultiplier}
+                  onChange={(e) => setBaseAmountMultiplier(e.target.value)}
+                  placeholder="Amount multiplier (e.g., 1.5 for 1.5x)"
+                  className="admin-input"
+                  min="0.1"
+                  step="0.1"
+                />
+                <button type="submit" disabled={loading || !baseAmountMultiplier} className="admin-button">
+                  Update Amount Multiplier
+                </button>
+              </div>
+            </form>
+          </div>
+
+          <div className="multiplier-subsection"> 
+            <h5>⛏️ Base Difficulty Multiplier</h5>
+            <p className="multiplier-info">Multiplies all PoW difficulties (1.0 = default, 2.0 = double difficulty)</p>
+            <form onSubmit={handleBaseDifficultyMultiplierSubmit} className="admin-form">
+              <div className="form-row">
+                <input
+                  type="number"
+                  value={baseDifficultyMultiplier}
+                  onChange={(e) => setBaseDifficultyMultiplier(e.target.value)}
+                  placeholder="Difficulty multiplier (e.g., 0.5 for 0.5x)"
+                  className="admin-input"
+                  min="0.1"
+                  step="0.1"
+                />
+                <button type="submit" disabled={loading || !baseDifficultyMultiplier} className="admin-button">
+                  Update Difficulty Multiplier
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+
+        <div className="admin-section">
+          <h4>🧪 Direct Withdrawal Test</h4>
+          <p className="multiplier-info">Test direct contract interaction bypassing the server (requires completed PoW)</p>
+          <button 
+            onClick={onDirectWithdrawal}
+            disabled={loading || !powComplete}
+            className="admin-button direct-withdrawal-button"
+          >
+            {!powComplete ? 'Complete Mining First' : '🚀 Test Direct Withdrawal'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+  
+  // Render progress steps dynamically
+  const renderProgressSteps = () => {
+    const steps = [];
+    
+    for (let i = 1; i <= maxWithdrawals; i++) {
+      const isCompleted = withdrawalCount >= i;
+      const isCurrent = withdrawalCount === i - 1;
+      
+      steps.push(
+        <div key={i} className={`progress-step ${isCompleted ? 'completed' : isCurrent ? 'current' : ''}`}>
+          {i}
+        </div>
+      );
+      
+      // Add progress line between steps (but not after the last one)
+      if (i < maxWithdrawals) {
+        steps.push(<div key={`line-${i}`} className="progress-line"></div>);
+      }
+    }
+    
+    return steps;
+  };
 
   return (
     <div className="faucet-container dark-theme">
@@ -827,7 +1396,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
             )}
             
             <p className="withdrawal-count">
-              Withdrawals completed: <span className="count">{withdrawalCount}</span> / {isDevFaucet ? 8 : 3}
+              Withdrawals completed: <span className="count">{withdrawalCount}</span> / {maxWithdrawals}
             </p>
             
             <div className="explorer-link-container">
@@ -836,16 +1405,12 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
               </a>
             </div>
           </div>
-          {(isDevFaucet ? withdrawalCount < 8 : withdrawalCount < 3) && (
+          {withdrawalCount < maxWithdrawals && (
             <div className="messages-container">
               <h3>{isDevFaucet ? 'Step 2: Sign Message to get tokens' : `Sign Message to get 0.1 ${networkConfig.nativeCurrency.symbol}`}</h3>
-              <p className="signature-info">A unique signature is required for each withdrawal (global 7.5 minute cooldown)</p>
+              <p className="signature-info">A unique signature is required for each withdrawal {isDevFaucet ? '(daily reset)' : '(global 7.5 minute cooldown)'}</p>
               <div className="message-progress">
-                <div className={`progress-step ${withdrawalCount >= 1 ? 'completed' : withdrawalCount === 0 ? 'current' : ''}`}>1</div>
-                <div className="progress-line"></div>
-                <div className={`progress-step ${withdrawalCount >= 2 ? 'completed' : withdrawalCount === 1 ? 'current' : ''}`}>2</div>
-                <div className="progress-line"></div>
-                <div className={`progress-step ${withdrawalCount >= 3 ? 'completed' : withdrawalCount === 2 ? 'current' : ''}`}>3</div>
+                {renderProgressSteps()}
               </div>
               {withdrawalCount === 0 && (
                 <div className="first-withdrawal-info">
@@ -886,7 +1451,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
                       <p>⚡ DevFaucet: Proof-of-work mining required for withdrawal</p>
                       <p>💎 Progressive amounts: 5, 5, 10, 15, 25, 50, 75, 100 tokens</p>
                       <p>🔄 Daily reset: Up to 8 withdrawals per 24-hour period</p>
-                      <p>⛏️ Difficulty: ~{Math.round(getDifficultyTarget(withdrawalCount + 1) / 1000)}k hashes (est. {
+                      <p>⛏️ Difficulty: ~8k+ hashes (est. {
                         withdrawalCount < 4 ? '30s' : 
                         withdrawalCount === 4 ? '1min' : 
                         withdrawalCount === 5 ? '2min' : 
@@ -916,7 +1481,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
                                 <div className="pow-progress-fill" style={{ width: `${powProgress}%` }}></div>
                               </div>
                               <p className="mining-stats">
-                                Difficulty: {getDifficultyTarget(withdrawalCount + 1).toLocaleString()} | 
+                                Difficulty: {powData?.difficultyTarget?.toLocaleString() || 'Loading...'} | 
                                 Time: {powStartTime ? ((Date.now() - powStartTime) / 1000).toFixed(1) : 0}s
                               </p>
                             </div>
@@ -955,7 +1520,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
                 withdrawalCount === 0 ? `Sign & Request via Server (First Withdrawal)` :
                 `Sign & Request 0.1 ${networkConfig.nativeCurrency.symbol} Directly`}
             </button>
-            <button onClick={() => setShowRefill(!showRefill)} className="refill-toggle-button" style={{ display: 'none' }}>
+            <button onClick={() => setShowRefill(!showRefill)} className="refill-toggle-button">
               {showRefill ? '↑ Hide Refill' : '↓ Show Refill'}
             </button>
           </div>
@@ -975,6 +1540,40 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
               </button>
             </div>
           )}
+          
+          {/* Admin Panel - only show for admin users on devFaucet */}
+          {isAdmin && isDevFaucet && (
+            <div className="admin-panel">
+              <div className="admin-header">
+                <h3>🔧 Admin Controls</h3>
+                <p className="admin-info">You are connected as the contract owner</p>
+                <button 
+                  onClick={() => setShowAdminPanel(!showAdminPanel)}
+                  className="admin-toggle-button"
+                >
+                  {showAdminPanel ? '🔼 Hide Admin Panel' : '🔽 Show Admin Panel'}
+                </button>
+              </div>
+              
+              {showAdminPanel && (
+                <div className="admin-content">
+                  <AdminPanel 
+                    onUpdateWithdrawalAmount={handleUpdateWithdrawalAmount}
+                    onUpdatePowDifficulty={handleUpdatePowDifficulty}
+                    onUpdateCooldownPeriod={handleUpdateCooldownPeriod}
+                    onUpdateBaseAmountMultiplier={handleUpdateBaseAmountMultiplier}
+                    onUpdateBaseDifficultyMultiplier={handleUpdateBaseDifficultyMultiplier}
+                    onDirectWithdrawal={handleDirectWithdrawal}
+                    loading={adminLoading}
+                  />
+                </div>
+              )}
+              
+              {adminError && <p className="admin-error">{adminError}</p>}
+              {adminSuccess && <p className="admin-success">{adminSuccess}</p>}
+            </div>
+          )}
+          
           {error && <p className="error">{error}</p>}
           {successMessage && <p className="success-message">{successMessage}</p>}
         </div>
@@ -1182,6 +1781,8 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           align-items: center;
           justify-content: center;
           margin: 20px 0;
+          flex-wrap: wrap;
+          gap: 2px;
         }
         
         .progress-step {
@@ -1194,6 +1795,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           justify-content: center;
           color: white;
           font-weight: bold;
+          font-size: 12px;
         }
         
         .progress-step.current {
@@ -1206,7 +1808,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         
         .progress-line {
           height: 3px;
-          width: 60px;
+          width: ${isDevFaucet ? '15px' : '60px'};
           background-color: #333;
         }
         
@@ -1526,6 +2128,212 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         
         .action-button.pow-ready:hover {
           background: linear-gradient(45deg, #2ed573, #20bf6b);
+        }
+        
+        .admin-panel {
+          background-color: #1e1e1e;
+          border: 2px solid #ff6b35;
+          border-radius: 8px;
+          padding: 15px;
+          margin: 20px 0;
+        }
+        
+        .admin-header {
+          text-align: center;
+          margin-bottom: 15px;
+        }
+        
+        .admin-header h3 {
+          color: #ff6b35;
+          margin: 0 0 10px 0;
+        }
+        
+        .admin-info {
+          color: #aaa;
+          font-size: 14px;
+          margin: 0 0 15px 0;
+        }
+        
+        .admin-toggle-button {
+          background-color: #ff6b35;
+          color: white;
+          padding: 8px 16px;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: bold;
+          transition: background-color 0.3s;
+        }
+        
+        .admin-toggle-button:hover {
+          background-color: #e55a30;
+        }
+        
+        .admin-content {
+          margin-top: 15px;
+        }
+        
+        .admin-panel-content {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+        
+        .admin-section {
+          background-color: #2d2d2d;
+          padding: 15px;
+          border-radius: 6px;
+          border-left: 3px solid #ff6b35;
+        }
+        
+        .admin-section h4 {
+          margin: 0 0 15px 0;
+          color: #ff6b35;
+          font-size: 16px;
+        }
+        
+        .admin-form {
+          width: 100%;
+        }
+        
+        .form-row {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          flex-wrap: wrap;
+        }
+        
+        .admin-select, .admin-input {
+          background-color: #3d3d3d;
+          color: white;
+          border: 1px solid #555;
+          border-radius: 4px;
+          padding: 8px 12px;
+          font-size: 14px;
+          flex: 1;
+          min-width: 120px;
+        }
+        
+        .admin-select:focus, .admin-input:focus {
+          outline: none;
+          border-color: #ff6b35;
+        }
+        
+        .admin-button {
+          background-color: #ff6b35;
+          color: white;
+          padding: 8px 16px;
+          border: none;
+          border-radius: 4px;
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: bold;
+          white-space: nowrap;
+          transition: background-color 0.3s;
+        }
+        
+        .admin-button:hover:not(:disabled) {
+          background-color: #e55a30;
+        }
+        
+        .admin-button:disabled {
+          background-color: #666;
+          cursor: not-allowed;
+        }
+        
+        .admin-error {
+          color: #ff5252;
+          margin-top: 15px;
+          padding: 10px;
+          background-color: rgba(255, 82, 82, 0.1);
+          border-radius: 6px;
+          border-left: 3px solid #ff5252;
+          font-size: 14px;
+        }
+        
+        .admin-success {
+          color: #4cd137;
+          margin-top: 15px;
+          padding: 10px;
+          background-color: rgba(76, 209, 55, 0.1);
+          border-radius: 6px;
+          border-left: 3px solid #4cd137;
+          font-size: 14px;
+        }
+        
+        .multiplier-section {
+          background: linear-gradient(135deg, #2d2d2d 0%, #3d3d3d 100%);
+          border-left: 3px solid #00d4ff;
+        }
+        
+        .multiplier-subsection {
+          margin-bottom: 20px;
+          padding: 15px;
+          background-color: #3d3d3d;
+          border-radius: 6px;
+          border: 1px solid #555;
+        }
+        
+        .multiplier-subsection:last-child {
+          margin-bottom: 0;
+        }
+        
+        .multiplier-subsection h5 {
+          margin: 0 0 10px 0;
+          color: #00d4ff;
+          font-size: 14px;
+          font-weight: bold;
+        }
+        
+        .multiplier-info {
+          margin: 0 0 15px 0;
+          font-size: 12px;
+          color: #bbb;
+          font-style: italic;
+        }
+        
+        .multiplier-section h4 {
+          color: #00d4ff;
+          margin-bottom: 20px;
+        }
+        
+        .direct-withdrawal-button {
+          background: linear-gradient(45deg, #ff6b35, #ff8f65);
+          color: white;
+          font-weight: bold;
+          width: 100%;
+          padding: 12px 20px;
+          margin-top: 10px;
+          transition: all 0.3s;
+        }
+        
+        .direct-withdrawal-button:hover:not(:disabled) {
+          background: linear-gradient(45deg, #e55a30, #ff7050);
+          transform: translateY(-1px);
+          box-shadow: 0 4px 8px rgba(255, 107, 53, 0.3);
+        }
+        
+        .direct-withdrawal-button:disabled {
+          background: #666;
+          cursor: not-allowed;
+          transform: none;
+          box-shadow: none;
+        }
+        
+        @media (max-width: 600px) {
+          .form-row {
+            flex-direction: column;
+            align-items: stretch;
+          }
+          
+          .admin-select, .admin-input, .admin-button {
+            width: 100%;
+          }
+          
+          .multiplier-subsection {
+            margin-bottom: 15px;
+          }
         }
       `}</style>
     </div>

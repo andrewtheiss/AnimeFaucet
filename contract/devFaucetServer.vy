@@ -20,6 +20,7 @@ def deposit():
 
 # Function to request a withdrawal from the devFaucet on behalf of a user
 # This handles the proof-of-work parameters and signature verification
+# Anyone can call this if they have valid PoW and signature - the DevFaucet contract handles all validation
 @external
 def requestWithdrawal(
     _faucet: address, 
@@ -31,8 +32,17 @@ def requestWithdrawal(
     _r: bytes32, 
     _s: bytes32
 ):
-    assert msg.sender == self.owner, "Only owner can request withdrawals"
-    extcall DevFaucet(_faucet).withdraw(_chosen_block_hash, _withdrawal_index, _ip_address, _nonce, _v, _r, _s)
+    # Remove owner restriction - anyone can request withdrawals if they have valid PoW + signature
+    # The DevFaucet contract will validate the proof-of-work and signature
+    extcall DevFaucet(_faucet).withdraw(
+        _chosen_block_hash, 
+        _withdrawal_index, 
+        _ip_address, 
+        _nonce, 
+        _v, 
+        _r, 
+        _s
+    )
 
 # Function to check contract balance
 @external

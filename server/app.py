@@ -44,9 +44,9 @@ NETWORK_CONFIG = {
     'testnet': {
         'rpc_url': 'https://testnet-rpc.anime.xyz/',
         'chain_id': 6900,
-        'faucet_address': '0x72cF2B84FE3375ed3ca4Ba358637ae9Aa7D654AA',  # DevFaucet address - to be updated
+        'faucet_address': '0xD2D8cbbb093042EDFd47C78cC09C425ceBD3B19E',  # DevFaucet address - UPDATED
         'backend_address': '0x5174f3e6F83CF2283b7677829356C8Bc6fCe578f', # DevFaucetServer address - to be updated  
-        'block_explorer_url': 'https://explorer-conduit-orbit-deployer-d4pqjb0rle.t.conduit.xyz/',
+        'block_explorer_url': 'https://explorer-animechain-testnet-i8yja6a1a0.t.conduit.xyz/',
         'faucet_type': 'dev'  # Indicates this uses the dev faucet (proof-of-work)
     }
 }
@@ -95,8 +95,72 @@ if not web3_instances:
 # Mainnet Faucet ABI (original faucet with admin functions)
 faucet_abi = [{"name": "Withdrawal", "inputs": [{"name": "recipient", "type": "address", "indexed": True}, {"name": "amount", "type": "uint256", "indexed": False}, {"name": "timestamp", "type": "uint256", "indexed": False}, {"name": "withdrawal_count", "type": "uint256", "indexed": False}], "anonymous": False, "type": "event"}, {"name": "Deposit", "inputs": [{"name": "sender", "type": "address", "indexed": True}, {"name": "amount", "type": "uint256", "indexed": False}, {"name": "timestamp", "type": "uint256", "indexed": False}], "anonymous": False, "type": "event"}, {"stateMutability": "payable", "type": "fallback"}, {"stateMutability": "payable", "type": "function", "name": "deposit", "inputs": [], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "withdraw", "inputs": [{"name": "_v", "type": "uint8"}, {"name": "_r", "type": "bytes32"}, {"name": "_s", "type": "bytes32"}, {"name": "_message", "type": "string"}], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "withdrawFor", "inputs": [{"name": "_user", "type": "address"}, {"name": "_v", "type": "uint8"}, {"name": "_r", "type": "bytes32"}, {"name": "_s", "type": "bytes32"}, {"name": "_message", "type": "string"}], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "addBackend", "inputs": [{"name": "_backend", "type": "address"}], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "removeBackend", "inputs": [{"name": "_backend", "type": "address"}], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "transferOwnership", "inputs": [{"name": "_newOwner", "type": "address"}], "outputs": []}, {"stateMutability": "view", "type": "function", "name": "get_balance", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "time_until_next_withdrawal", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_nonce", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_withdrawal_count", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_expected_message", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "string"}]}, {"stateMutability": "nonpayable", "type": "function", "name": "emergencyWithdrawAll", "inputs": [], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "emergencyWithdraw", "inputs": [{"name": "_amount", "type": "uint256"}], "outputs": []}, {"stateMutability": "view", "type": "function", "name": "owner", "inputs": [], "outputs": [{"name": "", "type": "address"}]}, {"stateMutability": "view", "type": "function", "name": "authorizedBackends", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "bool"}]}, {"stateMutability": "view", "type": "function", "name": "last_global_withdrawal", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "last_recipient", "inputs": [], "outputs": [{"name": "", "type": "address"}]}, {"stateMutability": "view", "type": "function", "name": "nonce", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "withdrawal_count", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "nonpayable", "type": "constructor", "inputs": [], "outputs": []}];
 
-# Testnet DevFaucet ABI (proof-of-work faucet with admin functions)
-dev_faucet_abi = [{"name": "Withdrawal", "inputs": [{"name": "recipient", "type": "address", "indexed": True}, {"name": "amount", "type": "uint256", "indexed": False}, {"name": "block_time", "type": "uint256", "indexed": False}, {"name": "withdrawal_count", "type": "uint256", "indexed": False}, {"name": "withdrawal_index", "type": "uint256", "indexed": False}, {"name": "difficulty_target", "type": "uint256", "indexed": False}, {"name": "chosen_block", "type": "uint256", "indexed": False}, {"name": "proof_hash", "type": "bytes32", "indexed": False}], "anonymous": False, "type": "event"}, {"name": "Deposit", "inputs": [{"name": "sender", "type": "address", "indexed": True}, {"name": "amount", "type": "uint256", "indexed": False}, {"name": "block_time", "type": "uint256", "indexed": False}], "anonymous": False, "type": "event"}, {"stateMutability": "payable", "type": "fallback"}, {"stateMutability": "payable", "type": "function", "name": "deposit", "inputs": [], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "withdraw", "inputs": [{"name": "_chosen_block_hash", "type": "bytes32"}, {"name": "_withdrawal_index", "type": "uint256"}, {"name": "_ip_address", "type": "bytes32"}, {"name": "_nonce", "type": "uint256"}, {"name": "_v", "type": "uint8"}, {"name": "_r", "type": "bytes32"}, {"name": "_s", "type": "bytes32"}], "outputs": []}, {"stateMutability": "view", "type": "function", "name": "get_balance", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "time_until_next_withdrawal", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_nonce", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_withdrawal_count", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_expected_message", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "string"}]}, {"stateMutability": "view", "type": "function", "name": "get_next_withdrawal_index", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_next_withdrawal_amount", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_difficulty_target", "inputs": [{"name": "_withdrawal_index", "type": "uint256"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "verify_proof_of_work", "inputs": [{"name": "_user", "type": "address"}, {"name": "_chosen_block_hash", "type": "bytes32"}, {"name": "_withdrawal_index", "type": "uint256"}, {"name": "_ip_address", "type": "bytes32"}, {"name": "_nonce", "type": "uint256"}], "outputs": [{"name": "", "type": "bool"}]}, {"stateMutability": "view", "type": "function", "name": "get_ip_address_hash", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "bytes32"}]}, {"stateMutability": "view", "type": "function", "name": "get_first_request_time", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_last_successful_block", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "pure", "type": "function", "name": "validate_hash", "inputs": [{"name": "_user", "type": "address"}, {"name": "_chosen_block_hash", "type": "bytes32"}, {"name": "_withdrawal_index", "type": "uint256"}, {"name": "_ip_address", "type": "bytes32"}, {"name": "_nonce", "type": "uint256"}], "outputs": [{"name": "", "type": "bool"}]}, {"stateMutability": "view", "type": "function", "name": "time_until_daily_reset", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "get_user_daily_status", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}, {"name": "", "type": "uint256"}, {"name": "", "type": "uint256"}, {"name": "", "type": "uint256"}]}, {"stateMutability": "nonpayable", "type": "function", "name": "transferOwnership", "inputs": [{"name": "_newOwner", "type": "address"}], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "emergencyWithdrawAll", "inputs": [], "outputs": []}, {"stateMutability": "nonpayable", "type": "function", "name": "emergencyWithdraw", "inputs": [{"name": "_amount", "type": "uint256"}], "outputs": []}, {"stateMutability": "view", "type": "function", "name": "owner", "inputs": [], "outputs": [{"name": "", "type": "address"}]}, {"stateMutability": "view", "type": "function", "name": "last_global_withdrawal", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "nonce", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "withdrawal_count", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "first_request_time", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "view", "type": "function", "name": "ip_address_hash", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "bytes32"}]}, {"stateMutability": "view", "type": "function", "name": "last_successful_block", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]}, {"stateMutability": "nonpayable", "type": "constructor", "inputs": [], "outputs": []}];
+# Testnet DevFaucet ABI (proof-of-work faucet with admin functions) - UPDATED
+dev_faucet_abi = [
+  # Events
+  {"name": "Withdrawal", "inputs": [{"name": "recipient", "type": "address", "indexed": True}, {"name": "amount", "type": "uint256", "indexed": False}, {"name": "block_time", "type": "uint256", "indexed": False}, {"name": "withdrawal_count", "type": "uint256", "indexed": False}, {"name": "withdrawal_index", "type": "uint256", "indexed": False}, {"name": "difficulty_target", "type": "uint256", "indexed": False}, {"name": "chosen_block", "type": "uint256", "indexed": False}, {"name": "proof_hash", "type": "bytes32", "indexed": False}], "anonymous": False, "type": "event"},
+  {"name": "Deposit", "inputs": [{"name": "sender", "type": "address", "indexed": True}, {"name": "amount", "type": "uint256", "indexed": False}, {"name": "block_time", "type": "uint256", "indexed": False}], "anonymous": False, "type": "event"},
+  # Admin Events
+  {"name": "WithdrawalAmountUpdated", "inputs": [{"name": "index", "type": "uint256", "indexed": False}, {"name": "old_amount", "type": "uint256", "indexed": False}, {"name": "new_amount", "type": "uint256", "indexed": False}, {"name": "updated_by", "type": "address", "indexed": True}], "anonymous": False, "type": "event"},
+  {"name": "PowDifficultyUpdated", "inputs": [{"name": "index", "type": "uint256", "indexed": False}, {"name": "old_difficulty", "type": "uint256", "indexed": False}, {"name": "new_difficulty", "type": "uint256", "indexed": False}, {"name": "updated_by", "type": "address", "indexed": True}], "anonymous": False, "type": "event"},
+  {"name": "CooldownPeriodUpdated", "inputs": [{"name": "old_period", "type": "uint256", "indexed": False}, {"name": "new_period", "type": "uint256", "indexed": False}, {"name": "updated_by", "type": "address", "indexed": True}], "anonymous": False, "type": "event"},
+  {"name": "PowBaseDifficultyUpdated", "inputs": [{"name": "old_base", "type": "uint256", "indexed": False}, {"name": "new_base", "type": "uint256", "indexed": False}, {"name": "updated_by", "type": "address", "indexed": True}], "anonymous": False, "type": "event"},
+  {"name": "BaseAmountMultiplierUpdated", "inputs": [{"name": "old_multiplier", "type": "uint256", "indexed": False}, {"name": "new_multiplier", "type": "uint256", "indexed": False}, {"name": "updated_by", "type": "address", "indexed": True}], "anonymous": False, "type": "event"},
+  {"name": "BaseDifficultyMultiplierUpdated", "inputs": [{"name": "old_multiplier", "type": "uint256", "indexed": False}, {"name": "new_multiplier", "type": "uint256", "indexed": False}, {"name": "updated_by", "type": "address", "indexed": True}], "anonymous": False, "type": "event"},
+  
+  # Basic functions
+  {"stateMutability": "payable", "type": "fallback"},
+  {"stateMutability": "payable", "type": "function", "name": "deposit", "inputs": [], "outputs": []},
+  {"stateMutability": "nonpayable", "type": "function", "name": "withdraw", "inputs": [{"name": "_chosen_block_hash", "type": "bytes32"}, {"name": "_withdrawal_index", "type": "uint256"}, {"name": "_ip_address", "type": "bytes32"}, {"name": "_nonce", "type": "uint256"}, {"name": "_v", "type": "uint8"}, {"name": "_r", "type": "bytes32"}, {"name": "_s", "type": "bytes32"}], "outputs": []},
+  
+  # View functions
+  {"stateMutability": "view", "type": "function", "name": "get_balance", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "time_until_next_withdrawal", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "get_nonce", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "get_withdrawal_count", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "get_expected_message", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "string"}]},
+  {"stateMutability": "view", "type": "function", "name": "get_next_withdrawal_index", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "get_next_withdrawal_amount", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "get_difficulty_target", "inputs": [{"name": "_withdrawal_index", "type": "uint256"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "verify_proof_of_work", "inputs": [{"name": "_user", "type": "address"}, {"name": "_chosen_block_hash", "type": "bytes32"}, {"name": "_withdrawal_index", "type": "uint256"}, {"name": "_ip_address", "type": "bytes32"}, {"name": "_nonce", "type": "uint256"}], "outputs": [{"name": "", "type": "bool"}]},
+  {"stateMutability": "view", "type": "function", "name": "get_ip_address_hash", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "bytes32"}]},
+  {"stateMutability": "view", "type": "function", "name": "get_first_request_time", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "get_last_successful_block", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "pure", "type": "function", "name": "validate_hash", "inputs": [{"name": "_user", "type": "address"}, {"name": "_chosen_block_hash", "type": "bytes32"}, {"name": "_withdrawal_index", "type": "uint256"}, {"name": "_ip_address", "type": "bytes32"}, {"name": "_nonce", "type": "uint256"}, {"name": "_difficulty_target", "type": "uint256"}], "outputs": [{"name": "", "type": "bool"}]},
+  {"stateMutability": "view", "type": "function", "name": "time_until_daily_reset", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "get_user_daily_status", "inputs": [{"name": "_user", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}, {"name": "", "type": "uint256"}, {"name": "", "type": "uint256"}, {"name": "", "type": "uint256"}]},
+  
+  # Admin functions
+  {"stateMutability": "nonpayable", "type": "function", "name": "updateWithdrawalAmount", "inputs": [{"name": "_index", "type": "uint256"}, {"name": "_amount", "type": "uint256"}], "outputs": []},
+  {"stateMutability": "nonpayable", "type": "function", "name": "updateAllWithdrawalAmounts", "inputs": [{"name": "_amounts", "type": "uint256[8]"}], "outputs": []},
+  {"stateMutability": "nonpayable", "type": "function", "name": "updatePowDifficulty", "inputs": [{"name": "_index", "type": "uint256"}, {"name": "_difficulty", "type": "uint256"}], "outputs": []},
+  {"stateMutability": "nonpayable", "type": "function", "name": "updateAllPowDifficulties", "inputs": [{"name": "_difficulties", "type": "uint256[8]"}], "outputs": []},
+  {"stateMutability": "nonpayable", "type": "function", "name": "updateCooldownPeriod", "inputs": [{"name": "_period", "type": "uint256"}], "outputs": []},
+  {"stateMutability": "nonpayable", "type": "function", "name": "updatePowBaseDifficulty", "inputs": [{"name": "_base", "type": "uint256"}], "outputs": []},
+  {"stateMutability": "nonpayable", "type": "function", "name": "updateBaseAmountMultiplier", "inputs": [{"name": "_multiplier", "type": "uint256"}], "outputs": []},
+  {"stateMutability": "nonpayable", "type": "function", "name": "updateBaseDifficultyMultiplier", "inputs": [{"name": "_multiplier", "type": "uint256"}], "outputs": []},
+  {"stateMutability": "nonpayable", "type": "function", "name": "transferOwnership", "inputs": [{"name": "_newOwner", "type": "address"}], "outputs": []},
+  {"stateMutability": "nonpayable", "type": "function", "name": "emergencyWithdrawAll", "inputs": [], "outputs": []},
+  {"stateMutability": "nonpayable", "type": "function", "name": "emergencyWithdraw", "inputs": [{"name": "_amount", "type": "uint256"}], "outputs": []},
+  
+  # State variables (view)
+  {"stateMutability": "view", "type": "function", "name": "owner", "inputs": [], "outputs": [{"name": "", "type": "address"}]},
+  {"stateMutability": "view", "type": "function", "name": "cooldown_period", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "pow_base_difficulty", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "base_amount_multiplier", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "base_difficulty_multiplier", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "withdrawal_amounts", "inputs": [{"name": "arg0", "type": "uint256"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "pow_difficulty_targets", "inputs": [{"name": "arg0", "type": "uint256"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "last_global_withdrawal", "inputs": [], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "nonce", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "withdrawal_count", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "first_request_time", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]},
+  {"stateMutability": "view", "type": "function", "name": "ip_address_hash", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "bytes32"}]},
+  {"stateMutability": "view", "type": "function", "name": "last_successful_block", "inputs": [{"name": "arg0", "type": "address"}], "outputs": [{"name": "", "type": "uint256"}]},
+  
+  # Constructor
+  {"stateMutability": "nonpayable", "type": "constructor", "inputs": [], "outputs": []}
+];
 
 # Backend server ABIs
 # Original FaucetServer ABI  
@@ -558,6 +622,57 @@ def server_account():
         return jsonify(results)
     except Exception as e:
         logging.error(f"Server account check failed: {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/check-ownership', methods=['GET'])
+def check_ownership():
+    """Check ownership of contracts and suggest fixes."""
+    try:
+        private_key = get_private_key()
+        if not private_key:
+            return jsonify({"error": "No private key configured"}), 500
+            
+        account = Account.from_key(private_key)
+        server_address = account.address
+        
+        results = {}
+        for network, config in NETWORK_CONFIG.items():
+            if network not in web3_instances:
+                results[network] = {"error": "No web3 instance available"}
+                continue
+                
+            web3 = web3_instances[network]
+            faucet_address = config['faucet_address']
+            backend_address = config['backend_address']
+            
+            try:
+                # Check faucet ownership
+                chosen_faucet_abi = dev_faucet_abi if config.get('faucet_type') == 'dev' else faucet_abi
+                faucet_contract = web3.eth.contract(address=faucet_address, abi=chosen_faucet_abi)
+                faucet_owner = faucet_contract.functions.owner().call()
+                
+                # Check backend ownership  
+                chosen_backend_abi = dev_backend_abi if config.get('faucet_type') == 'dev' else backend_abi
+                backend_contract = web3.eth.contract(address=backend_address, abi=chosen_backend_abi)
+                backend_owner = backend_contract.functions.owner().call()
+                
+                results[network] = {
+                    "server_address": server_address,
+                    "faucet_owner": faucet_owner,
+                    "backend_owner": backend_owner,
+                    "server_is_faucet_owner": faucet_owner.lower() == server_address.lower(),
+                    "server_is_backend_owner": backend_owner.lower() == server_address.lower(),
+                    "faucet_address": faucet_address,
+                    "backend_address": backend_address
+                }
+                
+            except Exception as e:
+                results[network] = {"error": str(e)}
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        logging.error(f"Error checking ownership: {str(e)}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
 @app.route('/debug', methods=['GET'])

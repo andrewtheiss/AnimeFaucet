@@ -26,40 +26,23 @@
 # • No global cooldown (proof-of-work provides natural rate limiting)
 # • Users can mine at their own pace within the 1000 block window
 
-# Define constants
-COOLDOWN_PERIOD: constant(uint256) = 0  # No global cooldown
+# Define constants (immutable)
 DAILY_RESET_PERIOD: constant(uint256) = 86400  # 24 hours in seconds
 MAX_DAILY_WITHDRAWALS: constant(uint256) = 8  # Maximum withdrawals per day
 BLOCK_HISTORY_LIMIT: constant(uint256) = 1000  # Can choose from last 1000 blocks
 GAS_RESERVE: constant(uint256) = 10000000000000000  # 0.01 token reserved for gas costs
 
-# Progressive withdrawal amounts (5, 5, 10, 15, 25, 50, 75, 100 tokens in wei)
-WITHDRAWAL_AMOUNTS: constant(uint256[8]) = [
-    5000000000000000000,   # 5 tokens
-    5000000000000000000,   # 5 tokens  
-    10000000000000000000,  # 10 tokens
-    15000000000000000000,  # 15 tokens
-    25000000000000000000,  # 25 tokens
-    50000000000000000000,  # 50 tokens
-    75000000000000000000,  # 75 tokens
-    100000000000000000000  # 100 tokens
-]
+# Admin-configurable parameters (mutable)
+cooldown_period: public(uint256)  # Global cooldown (default: 0 for no cooldown)  
+pow_base_difficulty: public(uint256)  # Base PoW difficulty multiplier (default: 1000)
+base_amount_multiplier: public(uint256)  # Global multiplier for all withdrawal amounts (default: 1000 = 1.0x)
+base_difficulty_multiplier: public(uint256)  # Global multiplier for all PoW difficulties (default: 1000 = 1.0x)
 
-# Default withdrawal amount (first amount from the progression)
-WITHDRAW_AMOUNT: constant(uint256) = 5000000000000000000  # 5 tokens
+# Progressive withdrawal amounts (admin configurable)
+withdrawal_amounts: public(uint256[8])
 
-# Proof-of-work difficulty progression (base multiplier: 1000)
-POW_BASE_DIFFICULTY: constant(uint256) = 1000
-POW_DIFFICULTY_TARGETS: constant(uint256[8]) = [
-    8000,    # Index 1: ~30 seconds avg
-    8000,    # Index 2: ~30 seconds avg
-    8000,    # Index 3: ~30 seconds avg
-    8000,    # Index 4: ~30 seconds avg
-    16000,   # Index 5: ~1 minute avg
-    32000,   # Index 6: ~2 minutes avg
-    64000,   # Index 7: ~4 minutes avg
-    128000   # Index 8: ~8 minutes avg
-]
+# Proof-of-work difficulty targets (admin configurable)  
+pow_difficulty_targets: public(uint256[8])
 
 # Specific messages to sign for each withdrawal (in order)
 MESSAGE_1: constant(String[103]) = "Ill use this ANIME coin to test building something on ANIME chain testnet."
@@ -100,10 +83,40 @@ event Deposit:
     amount: uint256
     block_time: uint256
 
-# Constructor to set the owner
+# Constructor to set the owner and initialize default values
 @deploy
 def __init__():
     self.owner = msg.sender
+    
+    # Initialize default cooldown period (0 = no cooldown)
+    self.cooldown_period = 0
+    
+    # Initialize default PoW base difficulty
+    self.pow_base_difficulty = 1000
+    
+    # Initialize default multipliers (1000 = 1.0x, 2000 = 2.0x, etc.)
+    self.base_amount_multiplier = 1000  # 1.0x multiplier
+    self.base_difficulty_multiplier = 1000  # 1.0x multiplier
+    
+    # Initialize default withdrawal amounts (5, 5, 10, 15, 25, 50, 75, 100 tokens in wei)
+    self.withdrawal_amounts[0] = 5000000000000000000   # 5 tokens
+    self.withdrawal_amounts[1] = 5000000000000000000   # 5 tokens  
+    self.withdrawal_amounts[2] = 10000000000000000000  # 10 tokens
+    self.withdrawal_amounts[3] = 15000000000000000000  # 15 tokens
+    self.withdrawal_amounts[4] = 25000000000000000000  # 25 tokens
+    self.withdrawal_amounts[5] = 50000000000000000000  # 50 tokens
+    self.withdrawal_amounts[6] = 75000000000000000000  # 75 tokens
+    self.withdrawal_amounts[7] = 100000000000000000000 # 100 tokens
+    
+    # Initialize default PoW difficulty targets
+    self.pow_difficulty_targets[0] = 8000    # Index 1: ~30 seconds avg
+    self.pow_difficulty_targets[1] = 8000    # Index 2: ~30 seconds avg
+    self.pow_difficulty_targets[2] = 8000    # Index 3: ~30 seconds avg
+    self.pow_difficulty_targets[3] = 8000    # Index 4: ~30 seconds avg
+    self.pow_difficulty_targets[4] = 16000   # Index 5: ~1 minute avg
+    self.pow_difficulty_targets[5] = 32000   # Index 6: ~2 minutes avg
+    self.pow_difficulty_targets[6] = 64000   # Index 7: ~4 minutes avg
+    self.pow_difficulty_targets[7] = 128000  # Index 8: ~8 minutes avg
 
 # Fallback function to accept native token deposits
 @external
@@ -181,14 +194,16 @@ def withdraw(_chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_addres
         )
     )
     
-    # Get difficulty target for this withdrawal index
-    difficulty_target: uint256 = POW_DIFFICULTY_TARGETS[_withdrawal_index - 1]
+    # Get difficulty target for this withdrawal index (with multiplier applied)
+    base_difficulty: uint256 = self.pow_difficulty_targets[_withdrawal_index - 1]
+    difficulty_target: uint256 = (base_difficulty * self.base_difficulty_multiplier) // 1000
     
     # Verify proof-of-work
     assert convert(pow_hash, uint256) % difficulty_target == 0, "Invalid proof-of-work"
     
-    # Get withdrawal amount for this index
-    withdrawal_amount: uint256 = WITHDRAWAL_AMOUNTS[_withdrawal_index - 1]
+    # Get withdrawal amount for this index (with multiplier applied)
+    base_amount: uint256 = self.withdrawal_amounts[_withdrawal_index - 1]
+    withdrawal_amount: uint256 = (base_amount * self.base_amount_multiplier) // 1000
     
     # Check contract balance (including gas reserve)
     assert self.balance >= withdrawal_amount + GAS_RESERVE, "Insufficient contract balance"
@@ -278,7 +293,7 @@ def get_balance() -> uint256:
 def time_until_next_withdrawal() -> uint256:
     if self.last_global_withdrawal == 0:
         return 0
-    next_time: uint256 = self.last_global_withdrawal + COOLDOWN_PERIOD
+    next_time: uint256 = self.last_global_withdrawal + self.cooldown_period
     if block.timestamp >= next_time:
         return 0
     return next_time - block.timestamp
@@ -360,14 +375,18 @@ def get_next_withdrawal_amount(_user: address) -> uint256:
         return 0  # No more withdrawals
     
     next_index: uint256 = current_count + 1
-    return WITHDRAWAL_AMOUNTS[next_index - 1]
+    base_amount: uint256 = self.withdrawal_amounts[next_index - 1]
+    # Apply base amount multiplier (1000 = 1.0x, 2000 = 2.0x, etc.)
+    return (base_amount * self.base_amount_multiplier) // 1000
 
 # Function to get the difficulty target for a specific withdrawal index (view function)
 @external
 @view
 def get_difficulty_target(_withdrawal_index: uint256) -> uint256:
     assert _withdrawal_index >= 1 and _withdrawal_index <= MAX_DAILY_WITHDRAWALS, "Invalid withdrawal index"
-    return POW_DIFFICULTY_TARGETS[_withdrawal_index - 1]
+    base_difficulty: uint256 = self.pow_difficulty_targets[_withdrawal_index - 1]
+    # Apply base difficulty multiplier (1000 = 1.0x, 2000 = 2.0x, etc.)
+    return (base_difficulty * self.base_difficulty_multiplier) // 1000
 
 # Function to verify a proof-of-work hash without executing withdrawal (view function)
 @external
@@ -389,7 +408,7 @@ def verify_proof_of_work(_user: address, _chosen_block_hash: bytes32, _withdrawa
     )
     
     # Get difficulty target for this withdrawal index
-    difficulty_target: uint256 = POW_DIFFICULTY_TARGETS[_withdrawal_index - 1]
+    difficulty_target: uint256 = self.pow_difficulty_targets[_withdrawal_index - 1]
     
     # Check if proof-of-work is valid
     return convert(pow_hash, uint256) % difficulty_target == 0
@@ -415,7 +434,7 @@ def get_last_successful_block(_user: address) -> uint256:
 # Function to validate proof-of-work hash before submission (pure function)
 @external
 @pure
-def validate_hash(_user: address, _chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _nonce: uint256) -> bool:
+def validate_hash(_user: address, _chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _nonce: uint256, _difficulty_target: uint256) -> bool:
     """
     Pure function to validate a proof-of-work hash given all inputs.
     Users can call this to verify their hash before submitting withdrawal.
@@ -426,6 +445,7 @@ def validate_hash(_user: address, _chosen_block_hash: bytes32, _withdrawal_index
         _withdrawal_index: Withdrawal index (1-8)
         _ip_address: User's IP address hash
         _nonce: Nonce used for proof-of-work
+        _difficulty_target: Difficulty target for this withdrawal index
     
     Returns:
         bool: True if the hash meets the difficulty requirement, False otherwise
@@ -446,11 +466,8 @@ def validate_hash(_user: address, _chosen_block_hash: bytes32, _withdrawal_index
         )
     )
     
-    # Get difficulty target for this withdrawal index
-    difficulty_target: uint256 = POW_DIFFICULTY_TARGETS[_withdrawal_index - 1]
-    
     # Check if proof-of-work is valid
-    return convert(pow_hash, uint256) % difficulty_target == 0
+    return convert(pow_hash, uint256) % _difficulty_target == 0
 
 # Function to get time until daily reset for a user (view function)
 @external
@@ -479,41 +496,173 @@ def get_user_daily_status(_user: address) -> (uint256, uint256, uint256, uint256
     """
     current_count: uint256 = self.withdrawal_count[_user]
     user_first_request: uint256 = self.first_request_time[_user]
+    remaining_withdrawals: uint256 = 0
+    total_remaining_amount: uint256 = 0
+    i: uint256 = 0
+    time_until_reset: uint256 = 0
+    reset_time: uint256 = 0
+    next_withdrawal_amount: uint256 = 0
     
     # Check if daily period has elapsed and reset counter if needed
     if user_first_request > 0 and block.timestamp >= user_first_request + DAILY_RESET_PERIOD:
         current_count = 0
     
     # Calculate remaining withdrawals
-    remaining_withdrawals: uint256 = 0
     if current_count < MAX_DAILY_WITHDRAWALS:
         remaining_withdrawals = MAX_DAILY_WITHDRAWALS - current_count
     
     # Calculate total remaining amount
-    total_remaining_amount: uint256 = 0
     if current_count < MAX_DAILY_WITHDRAWALS:
         # Sum up all remaining withdrawal amounts
-        i: uint256 = current_count
+        i = current_count
         for j: uint256 in range(8):
             if i < MAX_DAILY_WITHDRAWALS:
-                total_remaining_amount += WITHDRAWAL_AMOUNTS[i]
+                base_amount: uint256 = self.withdrawal_amounts[i]
+                multiplied_amount: uint256 = (base_amount * self.base_amount_multiplier) // 1000
+                total_remaining_amount += multiplied_amount
                 i += 1
             else:
                 break
     
     # Calculate time until reset
-    time_until_reset: uint256 = 0
     if user_first_request > 0:
-        reset_time: uint256 = user_first_request + DAILY_RESET_PERIOD
+        reset_time = user_first_request + DAILY_RESET_PERIOD
         if block.timestamp < reset_time:
             time_until_reset = reset_time - block.timestamp
     
-    # Get next withdrawal amount
-    next_withdrawal_amount: uint256 = 0
+    # Get next withdrawal amount (with multiplier applied)
     if current_count < MAX_DAILY_WITHDRAWALS:
-        next_withdrawal_amount = WITHDRAWAL_AMOUNTS[current_count]
+        base_next_amount: uint256 = self.withdrawal_amounts[current_count]
+        next_withdrawal_amount = (base_next_amount * self.base_amount_multiplier) // 1000
     
     return (total_remaining_amount, remaining_withdrawals, time_until_reset, next_withdrawal_amount)
+
+# Admin Events
+event WithdrawalAmountUpdated:
+    index: uint256
+    old_amount: uint256
+    new_amount: uint256
+    updated_by: indexed(address)
+
+event PowDifficultyUpdated:
+    index: uint256
+    old_difficulty: uint256
+    new_difficulty: uint256
+    updated_by: indexed(address)
+
+event CooldownPeriodUpdated:
+    old_period: uint256
+    new_period: uint256
+    updated_by: indexed(address)
+
+event PowBaseDifficultyUpdated:
+    old_base: uint256
+    new_base: uint256
+    updated_by: indexed(address)
+
+event BaseAmountMultiplierUpdated:
+    old_multiplier: uint256
+    new_multiplier: uint256
+    updated_by: indexed(address)
+
+event BaseDifficultyMultiplierUpdated:
+    old_multiplier: uint256
+    new_multiplier: uint256
+    updated_by: indexed(address)
+
+# Admin function to update a specific withdrawal amount
+@external
+def updateWithdrawalAmount(_index: uint256, _amount: uint256):
+    assert msg.sender == self.owner, "Only owner"
+    assert _index >= 1 and _index <= MAX_DAILY_WITHDRAWALS, "Invalid withdrawal index"
+    assert _amount > 0, "Amount must be greater than 0"
+    
+    old_amount: uint256 = self.withdrawal_amounts[_index - 1]
+    self.withdrawal_amounts[_index - 1] = _amount
+    
+    log WithdrawalAmountUpdated(index=_index, old_amount=old_amount, new_amount=_amount, updated_by=msg.sender)
+
+# Admin function to update all withdrawal amounts at once
+@external
+def updateAllWithdrawalAmounts(_amounts: uint256[8]):
+    assert msg.sender == self.owner, "Only owner"
+    
+    old_amount: uint256 = 0
+    
+    for i: uint256 in range(8):
+        assert _amounts[i] > 0, "All amounts must be greater than 0"
+        old_amount = self.withdrawal_amounts[i]
+        self.withdrawal_amounts[i] = _amounts[i]
+        log WithdrawalAmountUpdated(index=i+1, old_amount=old_amount, new_amount=_amounts[i], updated_by=msg.sender)
+
+# Admin function to update a specific PoW difficulty target
+@external
+def updatePowDifficulty(_index: uint256, _difficulty: uint256):
+    assert msg.sender == self.owner, "Only owner"
+    assert _index >= 1 and _index <= MAX_DAILY_WITHDRAWALS, "Invalid withdrawal index"
+    assert _difficulty > 0, "Difficulty must be greater than 0"
+    
+    old_difficulty: uint256 = self.pow_difficulty_targets[_index - 1]
+    self.pow_difficulty_targets[_index - 1] = _difficulty
+    
+    log PowDifficultyUpdated(index=_index, old_difficulty=old_difficulty, new_difficulty=_difficulty, updated_by=msg.sender)
+
+# Admin function to update all PoW difficulty targets at once
+@external
+def updateAllPowDifficulties(_difficulties: uint256[8]):
+    assert msg.sender == self.owner, "Only owner"
+    
+    old_difficulty: uint256 = 0
+    
+    for i: uint256 in range(8):
+        assert _difficulties[i] > 0, "All difficulties must be greater than 0"
+        old_difficulty = self.pow_difficulty_targets[i]
+        self.pow_difficulty_targets[i] = _difficulties[i]
+        log PowDifficultyUpdated(index=i+1, old_difficulty=old_difficulty, new_difficulty=_difficulties[i], updated_by=msg.sender)
+
+# Admin function to update the global cooldown period
+@external
+def updateCooldownPeriod(_period: uint256):
+    assert msg.sender == self.owner, "Only owner"
+    # Note: period can be 0 to disable cooldown
+    
+    old_period: uint256 = self.cooldown_period
+    self.cooldown_period = _period
+    
+    log CooldownPeriodUpdated(old_period=old_period, new_period=_period, updated_by=msg.sender)
+
+# Admin function to update the PoW base difficulty multiplier
+@external
+def updatePowBaseDifficulty(_base: uint256):
+    assert msg.sender == self.owner, "Only owner"
+    assert _base > 0, "Base difficulty must be greater than 0"
+    
+    old_base: uint256 = self.pow_base_difficulty
+    self.pow_base_difficulty = _base
+    
+    log PowBaseDifficultyUpdated(old_base=old_base, new_base=_base, updated_by=msg.sender)
+
+# Admin function to update the base amount multiplier
+@external
+def updateBaseAmountMultiplier(_multiplier: uint256):
+    assert msg.sender == self.owner, "Only owner"
+    assert _multiplier > 0, "Multiplier must be greater than 0"
+    
+    old_multiplier: uint256 = self.base_amount_multiplier
+    self.base_amount_multiplier = _multiplier
+    
+    log BaseAmountMultiplierUpdated(old_multiplier=old_multiplier, new_multiplier=_multiplier, updated_by=msg.sender)
+
+# Admin function to update the base difficulty multiplier
+@external
+def updateBaseDifficultyMultiplier(_multiplier: uint256):
+    assert msg.sender == self.owner, "Only owner"
+    assert _multiplier > 0, "Multiplier must be greater than 0"
+    
+    old_multiplier: uint256 = self.base_difficulty_multiplier
+    self.base_difficulty_multiplier = _multiplier
+    
+    log BaseDifficultyMultiplierUpdated(old_multiplier=old_multiplier, new_multiplier=_multiplier, updated_by=msg.sender)
 
 # Function to transfer ownership
 @external
