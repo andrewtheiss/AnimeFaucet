@@ -52,6 +52,8 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
 
   const networkConfig = NETWORKS[network] || NETWORKS.animechain;
   const isDevFaucet = network === 'animechain_testnet'; // Use devFaucet on AnimeChain testnet
+  
+  // Select contract ABI - DevFaucet now uses single signature by default!
   const contractABI = isDevFaucet ? DEV_FAUCET_ABI : FAUCET_ABI;
   const explorerUrl = `${networkConfig.blockExplorerUrls[0]}address/${account}`;
   
@@ -284,26 +286,52 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     
     try {
       //console.log("Updating faucet balance and user info...");
-      const balance = await contract.get_balance();
+      let balance;
+      if (isDevFaucet) {
+        // DevFaucet: Use provider to get contract's native balance
+        balance = await provider.getBalance(contractAddress);
+      } else {
+        // Original Faucet: Use contract's get_balance function
+        balance = await contract.get_balance();
+      }
       setBalance(ethers.formatEther(balance));
       
       if (account) {
        // console.log("Fetching data for account:", account);
-        const nonce = await contract.get_nonce(account);
-        setNonce(nonce.toString());
-        
-        const count = await contract.get_withdrawal_count(account);
-        setWithdrawalCount(Number(count));
-        
-        try {
-          const message = await contract.get_expected_message(account);
-          setExpectedMessage(message);
-        } catch (msgErr) {
-          console.error("Error getting expected message:", msgErr);
-          const fallbackMessage = isDevFaucet ? 
-            (DEV_FAUCET_MESSAGES[withdrawalCount] || "") : 
-            (WITHDRAWAL_MESSAGES[withdrawalCount] || "");
-          setExpectedMessage(fallbackMessage);
+        if (isDevFaucet) {
+          // DevFaucet: Use mapping accessors and different parameter for message
+          const nonce = await contract.nonce(account);
+          setNonce(nonce.toString());
+          
+          const count = await contract.withdrawal_count(account);
+          setWithdrawalCount(Number(count));
+          
+          try {
+            // DevFaucet uses withdrawal_index (1-based) instead of account for expected message
+            const withdrawalIndex = Number(count) + 1; // Convert 0-based count to 1-based index
+            const message = await contract.get_expected_message(withdrawalIndex);
+            setExpectedMessage(message);
+          } catch (msgErr) {
+            console.error("Error getting expected message:", msgErr);
+            const fallbackMessage = DEV_FAUCET_MESSAGES[Number(count)] || "";
+            setExpectedMessage(fallbackMessage);
+          }
+        } else {
+          // Original Faucet: Use original function names
+          const nonce = await contract.get_nonce(account);
+          setNonce(nonce.toString());
+          
+          const count = await contract.get_withdrawal_count(account);
+          setWithdrawalCount(Number(count));
+          
+          try {
+            const message = await contract.get_expected_message(account);
+            setExpectedMessage(message);
+          } catch (msgErr) {
+            console.error("Error getting expected message:", msgErr);
+            const fallbackMessage = WITHDRAWAL_MESSAGES[Number(count)] || "";
+            setExpectedMessage(fallbackMessage);
+          }
         }
       }
     } catch (err) {
@@ -418,46 +446,117 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       console.log("Current nonce:", nonce);
       const signer = await provider.getSigner();
       const contractWithSigner = contract.connect(signer);
-      const domain = {
-        name: "Faucet",
-        version: "1",
-        chainId: parseInt(networkConfig.chainId, 16), // Convert hex chainId to decimal
-        verifyingContract: contractAddress
-      };
-      const types = {
-        FaucetRequest: [
-          { name: "recipient", type: "address" },
-          { name: "message", type: "string" },
-          { name: "nonce", type: "uint256" }
-        ]
-      };
-      // If expectedMessage is empty, fall back to the appropriate array
-      const messageToSign = expectedMessage || (isDevFaucet ? 
-        DEV_FAUCET_MESSAGES[withdrawalCount] : 
-        WITHDRAWAL_MESSAGES[withdrawalCount]);
       
-      // Validate message exists
-      if (!messageToSign) {
-        throw new Error('No message available for signing. Please refresh and try again.');
+      // For DevFaucet: Use SINGLE SIGNATURE (no EIP-712 signing needed)
+      // For Original Faucet: Use traditional EIP-712 signing
+      let sig = null;
+      let messageToSign = null;
+      
+      if (!isDevFaucet) {
+        // Original Faucet: EIP-712 signing required
+        const domain = {
+          name: "Faucet",
+          version: "1",
+          chainId: parseInt(networkConfig.chainId, 16), // Convert hex chainId to decimal
+          verifyingContract: contractAddress
+        };
+        const types = {
+          FaucetRequest: [
+            { name: "recipient", type: "address" },
+            { name: "message", type: "string" },
+            { name: "nonce", type: "uint256" }
+          ]
+        };
+        
+        messageToSign = expectedMessage || WITHDRAWAL_MESSAGES[withdrawalCount];
+        
+        // Validate message exists
+        if (!messageToSign) {
+          throw new Error('No message available for signing. Please refresh and try again.');
+        }
+        
+        console.log("Message to sign (Original Faucet):", messageToSign);
+        
+        const message = {
+          recipient: account,
+          message: messageToSign,
+          nonce: Number(nonce)
+        };
+        
+        console.log("Signing EIP-712 data:", { domain, types, message });
+        
+        const signature = await signer.signTypedData(domain, types, message);
+        console.log("EIP-712 signature obtained:", signature);
+        sig = ethers.Signature.from(signature);
+      } else {
+        // DevFaucet: For server withdrawals, still need user authorization via signature
+        // The user signs to authorize the server to act on their behalf
+        messageToSign = expectedMessage || DEV_FAUCET_MESSAGES[withdrawalCount];
+        
+        if (!messageToSign) {
+          throw new Error('No message available for DevFaucet. Please refresh and try again.');
+        }
+        
+        console.log("🚀 DevFaucet - Requesting user signature for:", messageToSign);
+        
+        // For first withdrawal via server, user must sign to authorize the server
+        if (withdrawalCount === 0) {
+          // Create EIP-712 signature for server authorization
+          const domain = {
+            name: 'DevFaucet',
+            version: '1',
+            chainId: networkConfig.chainId,
+            verifyingContract: contractAddress
+          };
+          
+          const types = {
+            DevFaucetRequest: [
+              { name: 'recipient', type: 'address' },
+              { name: 'chosenBlockHash', type: 'bytes32' },
+              { name: 'withdrawalIndex', type: 'uint256' },
+              { name: 'ipAddress', type: 'bytes32' },
+              { name: 'nonce', type: 'uint256' },
+              { name: 'message', type: 'string' }
+            ]
+          };
+          
+          const message = {
+            recipient: account,
+            chosenBlockHash: powData.chosenBlockHash,
+            withdrawalIndex: powData.withdrawalIndex,
+            ipAddress: powData.ipAddressHash,
+            nonce: powData.nonce,
+            message: messageToSign
+          };
+          
+          console.log("Frontend EIP-712 domain:", domain);
+          console.log("Frontend EIP-712 message values:", message);
+          console.log("Signing DevFaucet EIP-712 authorization:", { domain, types, message });
+          
+          const signature = await signer.signTypedData(domain, types, message);
+          console.log("DevFaucet authorization signature obtained:", signature);
+          sig = ethers.Signature.from(signature);
+          
+          // Ensure proper formatting for server compatibility
+          console.log("DevFaucet signature components before formatting:", {
+            v: sig.v,
+            r: sig.r,
+            s: sig.s,
+            vType: typeof sig.v,
+            rType: typeof sig.r,
+            sType: typeof sig.s
+          });
+          
+          // Format signature components to ensure server compatibility
+          sig = {
+            v: sig.v,
+            r: sig.r.startsWith('0x') ? sig.r : `0x${sig.r}`,
+            s: sig.s.startsWith('0x') ? sig.s : `0x${sig.s}`
+          };
+          
+          console.log("DevFaucet signature components after formatting:", sig);
+        }
       }
-      
-      console.log("Message to sign:", messageToSign);
-      
-      const message = {
-        recipient: account,
-        message: messageToSign,
-        nonce: Number(nonce)
-      };
-      
-      console.log("Signing data:", { domain, types, message });
-      
-      // Show a warning if the expected message is empty
-      if (!expectedMessage) {
-        console.warn("Warning: Expected message from contract is empty, using fallback");
-      }
-      const signature = await signer.signTypedData(domain, types, message);
-      console.log("Signature obtained:", signature);
-      const sig = ethers.Signature.from(signature);
       
       // Check DevFaucet PoW requirements (for all withdrawals, including first via server)
       if (isDevFaucet && (!powComplete || !powData)) {
@@ -481,10 +580,11 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           withdrawal_index: powData?.withdrawalIndex || 1,
           ip_address: powData?.ipAddressHash || '0x0000000000000000000000000000000000000000000000000000000000000000',
           nonce: powData?.nonce || 0,
-          v: sig.v,
-          r: sig.r,
-          s: sig.s,
-          message: messageToSign
+          message: messageToSign,
+          // Include signature for server authorization (required for first withdrawal)
+          v: sig?.v || (() => { throw new Error('DevFaucet signature is required for server authorization'); })(),
+          r: sig?.r || (() => { throw new Error('DevFaucet signature is required for server authorization'); })(),
+          s: sig?.s || (() => { throw new Error('DevFaucet signature is required for server authorization'); })()
         } : {
           network: serverNetwork,
           user_address: account,
@@ -560,16 +660,47 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         // For subsequent DevFaucet withdrawals, use direct contract interaction
         console.log("Using PoW data for devFaucet withdrawal:", powData);
         
+        // Check if the current PoW block is still valid (after user's last withdrawal)
+        // For rollup chains, we need to be more flexible with block validation
+        let userLastBlock = 0;
+        try {
+          userLastBlock = await contract.last_successful_block(account);
+          userLastBlock = Number(userLastBlock);
+          
+          console.log(`Validating PoW: User last block ${userLastBlock}`);
+          
+          // For rollup chains with delays, skip strict block validation in frontend
+          // Let the contract handle the validation since it has the most up-to-date view
+          if (userLastBlock > 0) {
+            try {
+              const currentBlock = await provider.getBlock(powData.chosenBlockHash);
+              const currentBlockNum = currentBlock ? currentBlock.number : 'unknown';
+              console.log(`PoW block number: ${currentBlockNum}, User last block: ${userLastBlock}`);
+              
+              // Only warn about potential issues, don't block the transaction
+              const latestBlockNum = await provider.getBlockNumber();
+              if (userLastBlock > latestBlockNum) {
+                console.warn(`Rollup delay detected: User last block ${userLastBlock} > RPC latest ${latestBlockNum}`);
+                console.warn('This is expected for rollup chains. Contract will validate the actual block.');
+              }
+            } catch (blockErr) {
+              console.log('Could not get block details (synthetic hash or RPC issue):', blockErr.message);
+            }
+          }
+        } catch (err) {
+          console.log('Could not validate block (might be new user):', err.message);
+        }
+        
         // First try to estimate gas to catch any revert reasons
+        // DevFaucet uses message parameter, not signature components
+        const messageToSign = expectedMessage || DEV_FAUCET_MESSAGES[withdrawalCount];
         try {
           const gasEstimate = await contractWithSigner.withdraw.estimateGas(
             powData.chosenBlockHash,
             powData.withdrawalIndex,
             powData.ipAddressHash,
             powData.nonce,
-            sig.v,
-            sig.r,
-            sig.s
+            messageToSign
           );
           console.log("Gas estimate successful:", gasEstimate.toString());
         } catch (estimateError) {
@@ -577,15 +708,15 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           throw new Error(`Transaction would fail: ${estimateError.reason || estimateError.message}`);
         }
         
-        // Call devFaucet withdraw with PoW parameters
+        // SINGLE SIGNATURE: Call devFaucet withdraw with message parameter (no EIP-712 components)
+        console.log('🚀 Using SINGLE SIGNATURE DevFaucet withdrawal:', messageToSign);
+        
         const tx = await contractWithSigner.withdraw(
           powData.chosenBlockHash,
           powData.withdrawalIndex,
           powData.ipAddressHash,
           powData.nonce,
-          sig.v,
-          sig.r,
-          sig.s
+          messageToSign  // Message instead of v,r,s signature components
         );
         
         console.log("DevFaucet transaction submitted:", tx.hash);
@@ -743,6 +874,67 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     return ethers.keccak256(combinedBytes);
   };
 
+  // Function to get fresh block hash that handles rollup delays
+  const getFreshBlockHash = async () => {
+    try {
+      // Get user's last successful block from contract
+      let userLastBlock = 0;
+      try {
+        userLastBlock = await contract.last_successful_block(account);
+        userLastBlock = Number(userLastBlock);
+      } catch (err) {
+        console.log('Could not get user last block (new user):', err.message);
+      }
+      
+      // Get the latest block number from RPC
+      const rpcLatestBlockNumber = await provider.getBlockNumber();
+      console.log(`RPC latest block: ${rpcLatestBlockNumber}, User last block: ${userLastBlock}`);
+      
+      // For rollup chains, use a block number that's guaranteed to be after user's last block
+      // This handles the case where RPC latest block is behind the actual latest block
+      let targetBlockNumber;
+      
+      if (userLastBlock > rpcLatestBlockNumber && userLastBlock > 0) {
+        // Rollup delay detected - use user's last block + 1 as minimum
+        targetBlockNumber = userLastBlock + 1;
+        console.log(`Rollup delay detected. Using calculated block: ${targetBlockNumber}`);
+        
+        // Try to get this block, if it doesn't exist, create a synthetic hash
+        try {
+          const targetBlock = await provider.getBlock(targetBlockNumber);
+          if (targetBlock) {
+            console.log(`Found block ${targetBlockNumber}, hash: ${targetBlock.hash}`);
+            return targetBlock.hash;
+          }
+        } catch (blockErr) {
+          console.log(`Block ${targetBlockNumber} not found, creating synthetic hash`);
+        }
+        
+        // Create a deterministic synthetic hash based on user's address and target block
+        const synthHash = ethers.keccak256(
+          ethers.concat([
+            ethers.toUtf8Bytes(`block_${targetBlockNumber}_`),
+            ethers.getBytes(account),
+            ethers.toBeHex(Date.now(), 4) // Add some entropy
+          ])
+        );
+        console.log(`Using synthetic hash for block ${targetBlockNumber}: ${synthHash}`);
+        return synthHash;
+      } else {
+        // Normal case - use latest available block
+        targetBlockNumber = Math.max(rpcLatestBlockNumber, userLastBlock + 1);
+        const latestBlock = await provider.getBlock('latest');
+        console.log(`Using latest RPC block ${latestBlock.number}, hash: ${latestBlock.hash}`);
+        return latestBlock.hash;
+      }
+    } catch (err) {
+      console.error('Error getting fresh block hash:', err);
+      // Fallback to latest block
+      const latestBlock = await provider.getBlock('latest');
+      return latestBlock.hash;
+    }
+  };
+
   // PoW Mining Function with Pure Contract Validation 
   const startPowMining = async () => {
     if (!contract || !account) {
@@ -763,9 +955,8 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       // Get difficulty target for this withdrawal
       const difficultyTarget = await getDifficultyTarget(withdrawalIndex);
       
-      // Get recent block hash
-      const latestBlock = await provider.getBlock('latest');
-      const chosenBlockHash = latestBlock.hash;
+      // Get fresh block hash that's guaranteed to be after last withdrawal
+      const chosenBlockHash = await getFreshBlockHash();
       
       // Get IP address hash
       const ipAddressHash = await getIpAddressHash();
@@ -892,6 +1083,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       setPowComplete(false);
       setPowData(null);
       setPowProgress(0);
+      setPowMining(false); // Also reset mining state
     }
   }, [withdrawalCount, isDevFaucet]);
 
@@ -1021,6 +1213,106 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     }
   };
 
+  const debugBlockInfo = async () => {
+    if (!contract || !account) return;
+    
+    try {
+      console.log('=== DEBUG BLOCK INFO ===');
+      const latestBlockNum = await provider.getBlockNumber();
+      console.log(`RPC Latest block number: ${latestBlockNum}`);
+      
+      const latestBlock = await provider.getBlock('latest');
+      console.log(`RPC Latest block details:`, {
+        number: latestBlock.number,
+        hash: latestBlock.hash,
+        timestamp: latestBlock.timestamp,
+        timeSinceNow: `${Math.floor((Date.now() / 1000) - latestBlock.timestamp)}s ago`
+      });
+      
+      try {
+        const userLastBlock = await contract.last_successful_block(account);
+        const userLastBlockNum = Number(userLastBlock);
+        console.log(`User last successful block: ${userLastBlockNum}`);
+        
+        // Check for rollup delay
+        if (userLastBlockNum > latestBlockNum && userLastBlockNum > 0) {
+          console.log(`🔴 ROLLUP DELAY DETECTED:`);
+          console.log(`  User last block (${userLastBlockNum}) > RPC latest (${latestBlockNum})`);
+          console.log(`  Difference: ${userLastBlockNum - latestBlockNum} blocks`);
+          console.log(`  This is expected for rollup chains with processing delays`);
+        } else if (userLastBlockNum > 0) {
+          console.log(`✅ Block numbers consistent`);
+          console.log(`  User last: ${userLastBlockNum}, RPC latest: ${latestBlockNum}`);
+        }
+      } catch (err) {
+        console.log('Could not get user last block:', err.message);
+      }
+      
+      console.log(`Network: ${network} (rollup chain)`);
+      console.log(`Contract address: ${contractAddress}`);
+      console.log(`RPC URL: ${networkConfig.rpcUrls?.[0] || 'Unknown'}`);
+      console.log('========================');
+    } catch (err) {
+      console.error('Error in debug info:', err);
+    }
+  };
+
+  // Alternative single-signature approach (experimental)
+  const handleDirectWithdrawalOptimized = async () => {
+    if (!isAdmin || !contract || !isDevFaucet) return;
+    
+    try {
+      setAdminLoading(true);
+      setAdminError('');
+      setAdminSuccess('');
+      
+      if (!powComplete || !powData) {
+        setAdminError('Please complete proof-of-work mining first');
+        return;
+      }
+
+      const signer = await provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
+      
+      // SINGLE SIGNATURE APPROACH: Use the transaction signature as the EIP-712 signature
+      // This requires crafting the transaction data to match what the contract expects
+      
+      const messageToSign = expectedMessage || DEV_FAUCET_MESSAGES[withdrawalCount] || "Admin test withdrawal";
+      
+      // Create the contract call data manually
+      const withdrawInterface = new ethers.Interface([
+        "function withdraw(bytes32 _chosen_block_hash, uint256 _withdrawal_index, bytes32 _ip_address, uint256 _nonce, uint8 _v, bytes32 _r, bytes32 _s)"
+      ]);
+      
+      // Placeholder signature components - in a real implementation, 
+      // these would be derived from the transaction signature itself
+      const placeholderSig = {
+        v: 27,
+        r: ethers.ZeroHash,
+        s: ethers.ZeroHash
+      };
+      
+      const calldata = withdrawInterface.encodeFunctionData("withdraw", [
+        powData.chosenBlockHash,
+        powData.withdrawalIndex,
+        powData.ipAddressHash,
+        powData.nonce,
+        placeholderSig.v,
+        placeholderSig.r,
+        placeholderSig.s
+      ]);
+      
+      console.log('⚠️ Single signature approach needs contract modification to work properly');
+      setAdminError('Single signature approach requires contract changes. Use the standard method below.');
+      
+    } catch (err) {
+      console.error('Error with optimized withdrawal:', err);
+      setAdminError(`Optimized withdrawal failed: ${err.message}`);
+    } finally {
+      setAdminLoading(false);
+    }
+  };
+
   const handleDirectWithdrawal = async () => {
     if (!isAdmin || !contract || !isDevFaucet) return;
     
@@ -1033,6 +1325,39 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         setAdminError('Please complete proof-of-work mining first');
         return;
       }
+
+      // Check if we need to re-mine with a fresh block hash
+      // For rollup chains, be more flexible with validation
+      let userLastBlock = 0;
+      try {
+        userLastBlock = await contract.last_successful_block(account);
+        userLastBlock = Number(userLastBlock);
+      } catch (err) {
+        console.log('Could not get user last block (new user):', err.message);
+      }
+
+      console.log(`Direct withdrawal validation: User last block ${userLastBlock}`);
+
+      // For rollup chains with delays, let the contract handle validation
+      // Only perform basic sanity checks here
+      try {
+        const currentBlock = await provider.getBlock(powData.chosenBlockHash);
+        if (currentBlock) {
+          console.log(`PoW block: ${currentBlock.number}, User last: ${userLastBlock}`);
+          
+          // Check for rollup delay scenario
+          const latestBlockNum = await provider.getBlockNumber();
+          if (userLastBlock > latestBlockNum) {
+            console.warn(`Rollup delay in direct withdrawal: User last ${userLastBlock} > RPC latest ${latestBlockNum}`);
+            console.warn('Proceeding - contract will validate with actual blockchain state');
+          }
+        }
+      } catch (err) {
+        console.log('Could not get PoW block details (synthetic hash or RPC issue):', err.message);
+        console.log('Proceeding - contract will validate the block hash');
+      }
+
+      const updatedPowData = powData;
       
       const signer = await provider.getSigner();
       const contractWithSigner = contract.connect(signer);
@@ -1061,17 +1386,24 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         nonce: Number(nonce)
       };
       
+      // EXPLANATION: Two signatures are actually required by design:
+      // 1. EIP-712 signature (creates v,r,s parameters for contract verification)
+      // 2. Transaction signature (authorizes sending the transaction)
+      // This is the secure way the contract validates both the message and the sender
+      
+      console.log('🔒 Step 1: Creating EIP-712 message signature for contract verification...');
       const signature = await signer.signTypedData(domain, types, message);
       const sig = ethers.Signature.from(signature);
       
-      console.log('Admin direct withdrawal with PoW data:', powData);
+      console.log('📤 Step 2: Submitting transaction with signature components...');
+      console.log('Admin direct withdrawal with PoW data:', updatedPowData);
       
-      // Call devFaucet withdraw directly
+      // The contract needs these signature components to verify you authorized this specific message
       const tx = await contractWithSigner.withdraw(
-        powData.chosenBlockHash,
-        powData.withdrawalIndex,
-        powData.ipAddressHash,
-        powData.nonce,
+        updatedPowData.chosenBlockHash,
+        updatedPowData.withdrawalIndex,
+        updatedPowData.ipAddressHash,
+        updatedPowData.nonce,
         sig.v,
         sig.r,
         sig.s
@@ -1103,7 +1435,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
   const isTestnet = network === 'animechain_testnet';
   
   // Admin Panel Component
-  const AdminPanel = ({ onUpdateWithdrawalAmount, onUpdatePowDifficulty, onUpdateCooldownPeriod, onUpdateBaseAmountMultiplier, onUpdateBaseDifficultyMultiplier, onDirectWithdrawal, loading }) => {
+  const AdminPanel = ({ onUpdateWithdrawalAmount, onUpdatePowDifficulty, onUpdateCooldownPeriod, onUpdateBaseAmountMultiplier, onUpdateBaseDifficultyMultiplier, onDirectWithdrawal, onDebugBlockInfo, loading }) => {
     const [withdrawalIndex, setWithdrawalIndex] = useState(1);
     const [withdrawalAmount, setWithdrawalAmount] = useState('');
     const [difficultyIndex, setDifficultyIndex] = useState(1);
@@ -1291,6 +1623,18 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
             className="admin-button direct-withdrawal-button"
           >
             {!powComplete ? 'Complete Mining First' : '🚀 Test Direct Withdrawal'}
+          </button>
+        </div>
+
+        <div className="admin-section">
+          <h4>🔍 Debug Block Info</h4>
+          <p className="multiplier-info">Debug blockchain block numbers and contract state</p>
+          <button 
+            onClick={onDebugBlockInfo}
+            disabled={loading}
+            className="admin-button"
+          >
+            🔍 Debug Block Info (Check Console)
           </button>
         </div>
       </div>
@@ -1516,7 +1860,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
                 !isDevFaucet && withdrawalCount >= 3 ? 'Maximum withdrawals reached (3/3)' :
                 Number(cooldown) > 0 ? `Faucet available in ${formatCooldown()}` :
                 isDevFaucet && !powComplete ? 'Complete Mining First (Step 1)' :
-                isDevFaucet && powComplete ? '🎯 PoW Hash Found! Get Faucet Anime' :
+                isDevFaucet && powComplete ? '🚀 PoW Hash Found! Get Faucet Anime (SINGLE SIGNATURE!)' :
                 withdrawalCount === 0 ? `Sign & Request via Server (First Withdrawal)` :
                 `Sign & Request 0.1 ${networkConfig.nativeCurrency.symbol} Directly`}
             </button>
@@ -1564,6 +1908,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
                     onUpdateBaseAmountMultiplier={handleUpdateBaseAmountMultiplier}
                     onUpdateBaseDifficultyMultiplier={handleUpdateBaseDifficultyMultiplier}
                     onDirectWithdrawal={handleDirectWithdrawal}
+                    onDebugBlockInfo={debugBlockInfo}
                     loading={adminLoading}
                   />
                 </div>
@@ -2319,6 +2664,61 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           cursor: not-allowed;
           transform: none;
           box-shadow: none;
+        }
+        
+        /* Single Signature UI Styles */
+        .single-sig-toggle-container {
+          margin: 15px 0;
+          padding: 15px;
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+          border-radius: 12px;
+          border: 2px solid #5a67d8;
+        }
+        
+        .single-sig-toggle {
+          display: flex;
+          align-items: center;
+          cursor: pointer;
+          gap: 10px;
+        }
+        
+        .single-sig-toggle input[type="checkbox"] {
+          width: 20px;
+          height: 20px;
+          cursor: pointer;
+        }
+        
+        .toggle-label {
+          color: white;
+          font-weight: bold;
+          font-size: 14px;
+          cursor: pointer;
+        }
+        
+        .single-sig-button {
+          background: linear-gradient(45deg, #10b981, #34d399) !important;
+          color: white !important;
+          font-weight: bold !important;
+          font-size: 16px !important;
+          padding: 15px 25px !important;
+          border: none !important;
+          border-radius: 12px !important;
+          cursor: pointer !important;
+          transition: all 0.3s ease !important;
+          box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3) !important;
+        }
+        
+        .single-sig-button:hover:not(:disabled) {
+          background: linear-gradient(45deg, #059669, #10b981) !important;
+          transform: translateY(-2px) !important;
+          box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4) !important;
+        }
+        
+        .single-sig-button:disabled {
+          background: #666 !important;
+          cursor: not-allowed !important;
+          transform: none !important;
+          box-shadow: none !important;
         }
         
         @media (max-width: 600px) {

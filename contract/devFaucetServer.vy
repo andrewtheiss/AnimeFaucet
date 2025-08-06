@@ -1,8 +1,8 @@
 #pragma version >0.4.0
 
-# Interface for the DevFaucet contract with proof-of-work
+# Interface for the DevFaucet contract with single signature (no EIP-712)
 interface DevFaucet:
-    def withdraw(_chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _nonce: uint256, _v: uint8, _r: bytes32, _s: bytes32): nonpayable
+    def withdraw(_chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _nonce: uint256, _message: String[103]): nonpayable
 
 # Storage variables
 owner: public(address)
@@ -19,8 +19,8 @@ def deposit():
     pass
 
 # Function to request a withdrawal from the devFaucet on behalf of a user
-# This handles the proof-of-work parameters and signature verification
-# Anyone can call this if they have valid PoW and signature - the DevFaucet contract handles all validation
+# This handles the proof-of-work parameters and message for single signature
+# Anyone can call this if they have valid PoW - the DevFaucet contract handles all validation
 @external
 def requestWithdrawal(
     _faucet: address, 
@@ -28,20 +28,16 @@ def requestWithdrawal(
     _withdrawal_index: uint256, 
     _ip_address: bytes32, 
     _nonce: uint256, 
-    _v: uint8, 
-    _r: bytes32, 
-    _s: bytes32
+    _message: String[103]
 ):
-    # Remove owner restriction - anyone can request withdrawals if they have valid PoW + signature
-    # The DevFaucet contract will validate the proof-of-work and signature
+    # Anyone can request withdrawals if they have valid PoW + message
+    # The DevFaucet contract will validate the proof-of-work and message
     extcall DevFaucet(_faucet).withdraw(
         _chosen_block_hash, 
         _withdrawal_index, 
         _ip_address, 
         _nonce, 
-        _v, 
-        _r, 
-        _s
+        _message
     )
 
 # Function to check contract balance
