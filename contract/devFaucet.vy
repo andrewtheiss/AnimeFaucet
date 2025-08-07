@@ -1,8 +1,8 @@
 #pragma version >0.4.0
 
-# DevFaucet contract with gasless withdrawFor function for relayed transactions
-# Supports both direct withdrawals and server-assisted gasless withdrawals
-# Maintains all security features: PoW, rate limiting, IP consistency, message verification
+# DevFaucet contract with proper nonce separation
+# Separates anti-replay nonce (for EIP-712) from PoW nonce (for mining validation)
+# This fixes the fundamental design issue where both nonces were conflated
 
 # Define constants
 DAILY_RESET_PERIOD: constant(uint256) = 86400  # 24 hours in seconds
@@ -26,7 +26,7 @@ first_request_time: public(HashMap[address, uint256])    # First request timesta
 ip_address_hash: public(HashMap[address, bytes32])       # IP address hash per user (for consistency)
 last_successful_block: public(HashMap[address, uint256]) # Last successful withdrawal block per user
 last_global_withdrawal: public(uint256)                  # Global timestamp of last withdrawal
-nonce: public(HashMap[address, uint256])                 # Transaction nonce per user for replay protection
+nonce: public(HashMap[address, uint256])                 # Anti-replay nonce per user for signature verification
 
 # Configuration variables
 cooldown_period: public(uint256)                     # Global cooldown period in seconds (0 = disabled)
@@ -48,51 +48,48 @@ event Withdrawal:
     block_time: uint256
 
 event Deposit:
-    sender: indexed(address)
+    depositor: indexed(address)
     amount: uint256
-    block_time: uint256
 
-# Constructor to initialize the contract
+event OwnershipTransferred:
+    previous_owner: indexed(address)
+    new_owner: indexed(address)
+
+# Constructor
 @deploy
 def __init__():
     self.owner = msg.sender
     
-    # Set default multipliers (1000 = 1x)
-    self.base_amount_multiplier = 1000
-    self.base_difficulty_multiplier = 1000
+    # Initialize withdrawal amounts (in wei) for each index
+    self.withdrawal_amounts[0] = 5000000000000000000   # 5.0 ANIME for withdrawal 1
+    self.withdrawal_amounts[1] = 2500000000000000000   # 2.5 ANIME for withdrawal 2
+    self.withdrawal_amounts[2] = 1250000000000000000   # 1.25 ANIME for withdrawal 3
+    self.withdrawal_amounts[3] = 625000000000000000    # 0.625 ANIME for withdrawal 4
+    self.withdrawal_amounts[4] = 312500000000000000    # 0.3125 ANIME for withdrawal 5
+    self.withdrawal_amounts[5] = 156250000000000000    # 0.15625 ANIME for withdrawal 6
+    self.withdrawal_amounts[6] = 78125000000000000     # 0.078125 ANIME for withdrawal 7
+    self.withdrawal_amounts[7] = 39062500000000000     # 0.0390625 ANIME for withdrawal 8
     
-    # Initialize withdrawal amounts (in wei) - progressive amounts
-    self.withdrawal_amounts[0] = 5000000000000000000   # Index 1: 5 tokens
-    self.withdrawal_amounts[1] = 4000000000000000000   # Index 2: 4 tokens
-    self.withdrawal_amounts[2] = 3000000000000000000   # Index 3: 3 tokens
-    self.withdrawal_amounts[3] = 2000000000000000000   # Index 4: 2 tokens
-    self.withdrawal_amounts[4] = 1000000000000000000   # Index 5: 1 token
-    self.withdrawal_amounts[5] = 500000000000000000    # Index 6: 0.5 tokens
-    self.withdrawal_amounts[6] = 250000000000000000    # Index 7: 0.25 tokens
-    self.withdrawal_amounts[7] = 125000000000000000    # Index 8: 0.125 tokens
+    # Initialize PoW difficulty targets for each index
+    self.pow_difficulty_targets[0] = 8000     # Easiest for first withdrawal
+    self.pow_difficulty_targets[1] = 8000
+    self.pow_difficulty_targets[2] = 8000
+    self.pow_difficulty_targets[3] = 8000
+    self.pow_difficulty_targets[4] = 16000    # Increase difficulty for later withdrawals
+    self.pow_difficulty_targets[5] = 32000
+    self.pow_difficulty_targets[6] = 64000
+    self.pow_difficulty_targets[7] = 128000   # Hardest for final withdrawal
     
-    # Initialize PoW difficulty targets - progressive difficulty
-    self.pow_difficulty_targets[0] = 8000    # Index 1: ~30 seconds avg
-    self.pow_difficulty_targets[1] = 8000    # Index 2: ~30 seconds avg
-    self.pow_difficulty_targets[2] = 8000    # Index 3: ~30 seconds avg
-    self.pow_difficulty_targets[3] = 8000    # Index 4: ~30 seconds avg
-    self.pow_difficulty_targets[4] = 16000   # Index 5: ~1 minute avg
-    self.pow_difficulty_targets[5] = 32000   # Index 6: ~2 minutes avg
-    self.pow_difficulty_targets[6] = 64000   # Index 7: ~4 minutes avg
-    self.pow_difficulty_targets[7] = 128000  # Index 8: ~8 minutes avg
+    # Initialize multipliers
+    self.base_amount_multiplier = 1000        # 1x multiplier (1000 = 1x)
+    self.base_difficulty_multiplier = 1000    # 1x multiplier (1000 = 1x)
+    self.cooldown_period = 0                  # No global cooldown by default
 
-# Fallback function to accept native token deposits
-@external
-@payable
-def __default__():
-    pass
-
-# Explicit payable function to deposit funds into the faucet
+# Function to receive native currency deposits
 @external
 @payable
 def deposit():
-    assert msg.value > 0, "Must send some tokens"
-    log Deposit(sender=msg.sender, amount=msg.value, block_time=block.timestamp)
+    log Deposit(depositor=msg.sender, amount=msg.value)
 
 # EIP-712 Domain Separator
 @internal
@@ -100,13 +97,13 @@ def deposit():
 def _build_domain_separator() -> bytes32:
     return keccak256(concat(
         keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
-        keccak256("Faucet"),
+        keccak256("DevFaucet"),  # Updated domain name
         keccak256("1"),
         convert(chain.id, bytes32),
         convert(self, bytes32)
     ))
 
-# EIP-712 Message Hash for Withdrawal Request
+# EIP-712 Message Hash for Withdrawal Request (FIXED - uses anti-replay nonce)
 @internal
 @view
 def _build_withdrawal_message_hash(
@@ -114,7 +111,7 @@ def _build_withdrawal_message_hash(
     _chosen_block_hash: bytes32,
     _withdrawal_index: uint256,
     _ip_address: bytes32,
-    _nonce: uint256,
+    _anti_replay_nonce: uint256,  # FIXED: Renamed for clarity
     _message: String[103]
 ) -> bytes32:
     return keccak256(concat(
@@ -123,27 +120,31 @@ def _build_withdrawal_message_hash(
         _chosen_block_hash,
         convert(_withdrawal_index, bytes32),
         _ip_address,
-        convert(_nonce, bytes32),
+        convert(_anti_replay_nonce, bytes32),  # FIXED: Use anti-replay nonce for signature
         keccak256(_message)
     ))
 
-# GASLESS WITHDRAWAL: Server calls this on behalf of user with signature
+# GASLESS WITHDRAWAL: Server calls this on behalf of user with signature (FIXED VERSION)
 @external
 def withdrawFor(
     _recipient: address,
     _chosen_block_hash: bytes32,
     _withdrawal_index: uint256,
     _ip_address: bytes32,
-    _nonce: uint256,
+    _pow_nonce: uint256,           # FIXED: PoW nonce for mining validation
     _message: String[103],
     _v: uint256,
     _r: bytes32,
     _s: bytes32
 ):
-    # Verify EIP-712 signature from recipient
+    # FIXED: Verify EIP-712 signature using the stored anti-replay nonce
     domain_separator: bytes32 = self._build_domain_separator()
+    
+    # Get the current anti-replay nonce for this user
+    current_anti_replay_nonce: uint256 = self.nonce[_recipient]
+    
     message_hash: bytes32 = self._build_withdrawal_message_hash(
-        _recipient, _chosen_block_hash, _withdrawal_index, _ip_address, _nonce, _message
+        _recipient, _chosen_block_hash, _withdrawal_index, _ip_address, current_anti_replay_nonce, _message
     )
     
     typed_data_hash: bytes32 = keccak256(concat(
@@ -155,23 +156,27 @@ def withdrawFor(
     recovered_signer: address = ecrecover(typed_data_hash, _v, _r, _s)
     assert recovered_signer == _recipient, "Invalid signature - not signed by recipient"
     
-    # Execute withdrawal logic using _recipient instead of msg.sender
-    self._execute_withdrawal(_recipient, _chosen_block_hash, _withdrawal_index, _ip_address, _nonce, _message)
+    # FIXED: Increment anti-replay nonce BEFORE withdrawal to prevent replay attacks
+    self.nonce[_recipient] += 1
+    
+    # Execute withdrawal logic using _recipient and separate _pow_nonce
+    self._execute_withdrawal(_recipient, _chosen_block_hash, _withdrawal_index, _ip_address, _pow_nonce, _message)
 
-# DIRECT WITHDRAWAL: User calls this directly, paying their own gas
+# DIRECT WITHDRAWAL: User calls this directly, paying their own gas (FIXED VERSION)
 @external
-def withdraw(_chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _nonce: uint256, _message: String[103]):
-    # Execute withdrawal logic using msg.sender
-    self._execute_withdrawal(msg.sender, _chosen_block_hash, _withdrawal_index, _ip_address, _nonce, _message)
+def withdraw(_chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _pow_nonce: uint256, _message: String[103]):
+    # FIXED: For direct withdrawals, we don't need signature verification
+    # Execute withdrawal logic using msg.sender and _pow_nonce
+    self._execute_withdrawal(msg.sender, _chosen_block_hash, _withdrawal_index, _ip_address, _pow_nonce, _message)
 
-# Internal function to execute withdrawal logic (shared between withdraw and withdrawFor)
+# Internal function to execute withdrawal logic (FIXED - uses separate pow_nonce)
 @internal
 def _execute_withdrawal(
     _user: address,
     _chosen_block_hash: bytes32,
     _withdrawal_index: uint256,
     _ip_address: bytes32,
-    _nonce: uint256,
+    _pow_nonce: uint256,           # FIXED: Separate PoW nonce parameter
     _message: String[103]
 ):
     # Get the current timestamp and block number
@@ -239,8 +244,8 @@ def _execute_withdrawal(
     # CRITICAL: Verify the provided message matches expected message
     assert _message == expected_message, "Invalid message for this withdrawal"
     
-    # Validate proof-of-work using _user (not msg.sender for gasless transactions)
-    self._validate_proof_of_work(_chosen_block_hash, _user, _ip_address, _nonce, _withdrawal_index)
+    # FIXED: Validate proof-of-work using separate _pow_nonce parameter
+    self._validate_proof_of_work(_chosen_block_hash, _user, _ip_address, _pow_nonce, _withdrawal_index)
     
     # Check global cooldown
     if self.cooldown_period > 0:
@@ -267,13 +272,13 @@ def _execute_withdrawal(
         amount=withdrawal_amount,
         withdrawal_index=_withdrawal_index,
         chosen_block_hash=_chosen_block_hash,
-        pow_nonce=_nonce,
+        pow_nonce=_pow_nonce,  # FIXED: Log the PoW nonce used
         block_time=current_time
     )
 
-# Internal function to validate proof-of-work
+# Internal function to validate proof-of-work (FIXED - clearer parameter naming)
 @internal
-def _validate_proof_of_work(_chosen_block_hash: bytes32, _user: address, _ip_address: bytes32, _nonce: uint256, _withdrawal_index: uint256):
+def _validate_proof_of_work(_chosen_block_hash: bytes32, _user: address, _ip_address: bytes32, _pow_nonce: uint256, _withdrawal_index: uint256):
     # Get difficulty target with multiplier
     base_difficulty: uint256 = self.pow_difficulty_targets[_withdrawal_index - 1]
     difficulty_target: uint256 = (base_difficulty * self.base_difficulty_multiplier) // 1000
@@ -283,7 +288,7 @@ def _validate_proof_of_work(_chosen_block_hash: bytes32, _user: address, _ip_add
         _chosen_block_hash,
         convert(_user, bytes20),
         _ip_address,
-        convert(_nonce, bytes32)
+        convert(_pow_nonce, bytes32)  # FIXED: Use dedicated PoW nonce parameter
     ))
     
     # Validate the hash meets the difficulty requirement
@@ -311,7 +316,6 @@ def get_withdrawal_amount(_withdrawal_index: uint256) -> uint256:
 @view
 def get_expected_message(_withdrawal_index: uint256) -> String[103]:
     assert _withdrawal_index >= 1 and _withdrawal_index <= MAX_DAILY_WITHDRAWALS, "Invalid withdrawal index"
-    
     if _withdrawal_index == 1:
         return MESSAGE_1
     elif _withdrawal_index == 2:
@@ -329,42 +333,48 @@ def get_expected_message(_withdrawal_index: uint256) -> String[103]:
     elif _withdrawal_index == 8:
         return MESSAGE_8
     else:
-        return MESSAGE_1  # Fallback
+        return ""
 
-# Owner-only functions for configuration
+# Admin functions (only owner)
 @external
 def update_withdrawal_amount(_index: uint256, _amount: uint256):
-    assert msg.sender == self.owner, "Only owner can update amounts"
+    assert msg.sender == self.owner, "Only owner"
     assert _index >= 1 and _index <= MAX_DAILY_WITHDRAWALS, "Invalid index"
     self.withdrawal_amounts[_index - 1] = _amount
 
 @external
 def update_pow_difficulty(_index: uint256, _difficulty: uint256):
-    assert msg.sender == self.owner, "Only owner can update difficulty"
+    assert msg.sender == self.owner, "Only owner"
     assert _index >= 1 and _index <= MAX_DAILY_WITHDRAWALS, "Invalid index"
     self.pow_difficulty_targets[_index - 1] = _difficulty
 
 @external
 def update_cooldown_period(_period: uint256):
-    assert msg.sender == self.owner, "Only owner can update cooldown"
+    assert msg.sender == self.owner, "Only owner"
     self.cooldown_period = _period
 
 @external
 def update_base_amount_multiplier(_multiplier: uint256):
-    assert msg.sender == self.owner, "Only owner can update multiplier"
+    assert msg.sender == self.owner, "Only owner"
+    assert _multiplier > 0, "Multiplier must be positive"
     self.base_amount_multiplier = _multiplier
 
 @external
 def update_base_difficulty_multiplier(_multiplier: uint256):
-    assert msg.sender == self.owner, "Only owner can update multiplier"
+    assert msg.sender == self.owner, "Only owner"
+    assert _multiplier > 0, "Multiplier must be positive"
     self.base_difficulty_multiplier = _multiplier
 
 @external
-def emergency_withdraw(_amount: uint256):
-    assert msg.sender == self.owner, "Only owner can emergency withdraw"
+def withdraw_balance(_amount: uint256):
+    assert msg.sender == self.owner, "Only owner"
+    assert self.balance >= _amount, "Insufficient balance"
     send(self.owner, _amount)
 
 @external
 def transfer_ownership(_new_owner: address):
-    assert msg.sender == self.owner, "Only owner can transfer ownership"
+    assert msg.sender == self.owner, "Only owner"
+    assert _new_owner != empty(address), "Invalid new owner"
+    old_owner: address = self.owner
     self.owner = _new_owner
+    log OwnershipTransferred(previous_owner=old_owner, new_owner=_new_owner)

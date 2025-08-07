@@ -1,9 +1,9 @@
 #pragma version >0.4.0
 
-# Interface for the DevFaucet contract with gasless withdrawFor function
+# Interface for the DevFaucet contract with properly separated nonces
 interface DevFaucet:
-    def withdraw(_chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _nonce: uint256, _message: String[103]): nonpayable
-    def withdrawFor(_recipient: address, _chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _nonce: uint256, _message: String[103], _v: uint256, _r: bytes32, _s: bytes32): nonpayable
+    def withdraw(_chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _pow_nonce: uint256, _message: String[103]): nonpayable
+    def withdrawFor(_recipient: address, _chosen_block_hash: bytes32, _withdrawal_index: uint256, _ip_address: bytes32, _pow_nonce: uint256, _message: String[103], _v: uint256, _r: bytes32, _s: bytes32): nonpayable
 
 # Storage variables
 owner: public(address)
@@ -19,7 +19,7 @@ def __init__():
 def deposit():
     pass
 
-# GASLESS WITHDRAWAL: Server calls withdrawFor on behalf of user with their signature
+# GASLESS WITHDRAWAL: Server calls withdrawFor on behalf of user with their signature (FIXED VERSION)
 @external
 def requestWithdrawal(
     _faucet: address,
@@ -27,7 +27,7 @@ def requestWithdrawal(
     _chosen_block_hash: bytes32,
     _withdrawal_index: uint256,
     _ip_address: bytes32,
-    _nonce: uint256,
+    _pow_nonce: uint256,           # FIXED: This is now clearly the PoW nonce
     _message: String[103],
     _v: uint256,
     _r: bytes32,
@@ -35,15 +35,16 @@ def requestWithdrawal(
 ):
     # Call the DevFaucet's withdrawFor function with user's signature
     # The DevFaucet contract will:
-    # 1. Verify the EIP-712 signature is from _user
-    # 2. Validate PoW using _user address (not msg.sender)
-    # 3. Transfer tokens directly to _user
+    # 1. Use the stored anti-replay nonce for EIP-712 signature verification
+    # 2. Use the _pow_nonce parameter for PoW validation
+    # 3. Increment the anti-replay nonce to prevent replay attacks
+    # 4. Transfer tokens directly to _user
     extcall DevFaucet(_faucet).withdrawFor(
         _user,
         _chosen_block_hash,
         _withdrawal_index,
         _ip_address,
-        _nonce,
+        _pow_nonce,     # FIXED: Pass PoW nonce for mining validation
         _message,
         _v,
         _r,
@@ -57,7 +58,7 @@ def requestWithdrawalDirect(
     _chosen_block_hash: bytes32, 
     _withdrawal_index: uint256, 
     _ip_address: bytes32, 
-    _nonce: uint256, 
+    _pow_nonce: uint256,    # FIXED: Now clearly the PoW nonce
     _message: String[103]
 ):
     # Legacy function - calls withdraw directly (user pays gas)
@@ -66,7 +67,7 @@ def requestWithdrawalDirect(
         _chosen_block_hash, 
         _withdrawal_index, 
         _ip_address, 
-        _nonce, 
+        _pow_nonce,     # FIXED: Pass PoW nonce for mining validation
         _message
     )
 

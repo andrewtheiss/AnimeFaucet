@@ -442,8 +442,18 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       setLoading(true);
       setError('');
       console.log("Starting withdrawal process...");
+      
+      // CRITICAL: Fetch fresh anti-replay nonce before signing
+      console.log("Fetching current anti-replay nonce before signing...");
+      const currentNonce = isDevFaucet ? await contract.nonce(account) : nonce;
+      console.log("🔍 NONCE DEBUG:");
+      console.log("  Account:", account);
+      console.log("  Contract address:", contractAddress);
+      console.log("  Fresh anti-replay nonce from contract:", currentNonce.toString());
+      console.log("  Component state nonce:", nonce);
+      console.log("  Will sign with nonce:", currentNonce.toString());
+      
       console.log("Expected message:", expectedMessage);
-      console.log("Current nonce:", nonce);
       const signer = await provider.getSigner();
       const contractWithSigner = contract.connect(signer);
       
@@ -525,12 +535,17 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
             chosenBlockHash: powData.chosenBlockHash,
             withdrawalIndex: powData.withdrawalIndex,
             ipAddress: powData.ipAddressHash,
-            nonce: Number(nonce), // Use anti-replay nonce from contract (for EIP-712 signature)
+            nonce: Number(currentNonce), // DEPLOYED CONTRACT FIX: Use fresh anti-replay nonce
             message: messageToSign
           };
           
-          console.log("Frontend EIP-712 domain:", domain);
-          console.log("Frontend EIP-712 message values:", value);
+          console.log("🔐 EIP-712 SIGNATURE DEBUG:");
+          console.log("  Domain:", JSON.stringify(domain, null, 2));
+          console.log("  Message values:", JSON.stringify(value, null, 2));
+          console.log("  ChainId in domain:", domain.chainId, "(should match network)");
+          console.log("  Contract address in domain:", domain.verifyingContract);
+          console.log(`  Signing with anti-replay nonce: ${currentNonce}`);
+          console.log(`  PoW nonce ${powData.nonce} will be sent separately for mining validation`);
           console.log("Signing DevFaucet EIP-712 authorization:", { domain, types, value });
           
           const signature = await signer.signTypedData(domain, types, value);
@@ -579,8 +594,8 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           chosen_block_hash: powData?.chosenBlockHash || '0x0000000000000000000000000000000000000000000000000000000000000000',
           withdrawal_index: powData?.withdrawalIndex || 1,
           ip_address: powData?.ipAddressHash || '0x0000000000000000000000000000000000000000000000000000000000000000',
-          nonce: Number(nonce), // Send anti-replay nonce (matches what was signed)
-          pow_nonce: powData?.nonce || 0, // Send PoW nonce separately
+          nonce: Number(currentNonce), // Send fresh anti-replay nonce
+          pow_nonce: powData?.nonce || 0, // Send PoW nonce (used for mining validation)
           message: messageToSign,
           // Include signature for server authorization (required for first withdrawal)
           v: sig?.v || (() => { throw new Error('DevFaucet signature is required for server authorization'); })(),
@@ -716,7 +731,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           powData.chosenBlockHash,
           powData.withdrawalIndex,
           powData.ipAddressHash,
-          powData.nonce,
+          powData.nonce,  // _pow_nonce: Use the PoW nonce for mining validation
           messageToSign  // Message instead of v,r,s signature components
         );
         
@@ -1247,7 +1262,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       
       // Create the contract call data manually
       const withdrawInterface = new ethers.Interface([
-        "function withdraw(bytes32 _chosen_block_hash, uint256 _withdrawal_index, bytes32 _ip_address, uint256 _nonce, uint8 _v, bytes32 _r, bytes32 _s)"
+        "function withdraw(bytes32 _chosen_block_hash, uint256 _withdrawal_index, bytes32 _ip_address, uint256 _pow_nonce, string _message)"
       ]);
       
       // Placeholder signature components - in a real implementation, 
@@ -1369,7 +1384,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         updatedPowData.chosenBlockHash,
         updatedPowData.withdrawalIndex,
         updatedPowData.ipAddressHash,
-        updatedPowData.nonce,
+        updatedPowData.nonce,  // _pow_nonce: Use the PoW nonce for mining validation
         sig.v,
         sig.r,
         sig.s
