@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { FAUCET_ABI, DEV_FAUCET_ABI, FAUCET_SERVER_ABI, DEV_FAUCET_SERVER_ABI, NETWORKS, WITHDRAWAL_MESSAGES, DEV_FAUCET_MESSAGES } from '../constants/contracts';
 import animecoinIcon from '../assets/animecoin.png';
 import animeBackground from '../assets/anime.webp';
+import EIP712DebugPanel from './EIP712DebugPanel';
 
 // Define constants to match contract
 const COOLDOWN_PERIOD = 450; // 7.5 minutes in seconds (match contract)
@@ -46,6 +47,9 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
   
   // Server endpoint preference for localhost users
   const [useLocalServer, setUseLocalServer] = useState(true);
+  
+  // Debug panel state
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
   
   // Detect localhost for showing server features
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
@@ -530,8 +534,11 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
             ]
           };
           
+          const signerAddress = await signer.getAddress();
+          console.log('🔑 Signer address for EIP-712 authorization:', signerAddress, '(state account:', account, ')');
+
           const value = {
-            recipient: account,
+            recipient: signerAddress,
             chosenBlockHash: powData.chosenBlockHash,
             withdrawalIndex: powData.withdrawalIndex,
             ipAddress: powData.ipAddressHash,
@@ -546,9 +553,25 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           console.log("  Contract address in domain:", domain.verifyingContract);
           console.log(`  Signing with anti-replay nonce: ${currentNonce}`);
           console.log(`  PoW nonce ${powData.nonce} will be sent separately for mining validation`);
+          
+          console.log("🚨 CRITICAL DEBUG - RIGHT BEFORE SIGNING:");
+          console.log("  currentNonce (should be 0):", currentNonce.toString());
+          console.log("  powData.nonce (should be 9000):", powData.nonce);
+          console.log("  value.nonce (what we're actually signing with):", value.nonce);
+          console.log("  Type of currentNonce:", typeof currentNonce);
+          console.log("  Type of powData.nonce:", typeof powData.nonce);
+          console.log("  Type of value.nonce:", typeof value.nonce);
+          
           console.log("Signing DevFaucet EIP-712 authorization:", { domain, types, value });
           
           const signature = await signer.signTypedData(domain, types, value);
+          // Local verification before proceeding
+          const recoveredAddress = ethers.verifyTypedData(domain, types, value, signature);
+          console.log('🧪 Recovered signer from typed data:', recoveredAddress);
+          if (recoveredAddress.toLowerCase() !== value.recipient.toLowerCase()) {
+            console.error('❌ Recovered signer does not match recipient in message. Aborting.');
+            throw new Error('Signature not from selected wallet. Please switch to the correct account and try again.');
+          }
           console.log("DevFaucet authorization signature obtained:", signature);
           sig = ethers.Signature.from(signature);
           
@@ -590,7 +613,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         // Log the request data for debugging
         const requestData = isDevFaucet ? {
           network: serverNetwork,
-          user_address: account,
+          user_address: (await provider.getSigner().then(s => s.getAddress())),
           chosen_block_hash: powData?.chosenBlockHash || '0x0000000000000000000000000000000000000000000000000000000000000000',
           withdrawal_index: powData?.withdrawalIndex || 1,
           ip_address: powData?.ipAddressHash || '0x0000000000000000000000000000000000000000000000000000000000000000',
@@ -609,6 +632,12 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           s: sig.s,
           message: messageToSign
         };
+        
+        console.log("🚨 CRITICAL DEBUG - SERVER REQUEST DATA:");
+        console.log("  requestData.nonce (anti-replay, should be 0):", requestData.nonce);
+        console.log("  requestData.pow_nonce (PoW mining, should be 9000):", requestData.pow_nonce);
+        console.log("  currentNonce variable:", currentNonce.toString());
+        console.log("  powData.nonce variable:", powData?.nonce);
         
         console.log("Server request data:", requestData);
         console.log("Sending network name to server:", serverNetwork);
@@ -1897,6 +1926,41 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
               
               {adminError && <p className="admin-error">{adminError}</p>}
               {adminSuccess && <p className="admin-success">{adminSuccess}</p>}
+            </div>
+          )}
+          
+          {/* EIP-712 Debug Panel - available to all users on devFaucet */}
+          {isDevFaucet && (
+            <div className="debug-panel" style={{ marginTop: '20px' }}>
+              <div className="debug-header" style={{ marginBottom: '10px' }}>
+                <button 
+                  onClick={() => setShowDebugPanel(!showDebugPanel)}
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: showDebugPanel ? '#dc3545' : '#007bff',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '5px',
+                    cursor: 'pointer',
+                    fontSize: '16px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  {showDebugPanel ? '🔼 Hide EIP-712 Debug Panel' : '🔍 Show EIP-712 Debug Panel'}
+                </button>
+                <p style={{ fontSize: '14px', color: '#666', marginTop: '5px' }}>
+                  Debug signature verification issues step by step
+                </p>
+              </div>
+              
+              {showDebugPanel && (
+                <EIP712DebugPanel 
+                  contractAddress={contractAddress}
+                  provider={provider}
+                  account={account}
+                  network={network}
+                />
+              )}
             </div>
           )}
           

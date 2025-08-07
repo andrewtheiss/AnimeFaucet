@@ -44,7 +44,7 @@ NETWORK_CONFIG = {
     'testnet': {
         'rpc_url': 'https://testnet-rpc.anime.xyz/',
         'chain_id': 6900,
-        'faucet_address': '0xf0D4061DB5330a3785DCb0705eE0565338311d4B',  # DevFaucet address - UPDATED
+        'faucet_address': '0x8E5Da499f3F948652f6D2837eC049deE83Db4018',  # DevFaucet address - UPDATED
         'backend_address': '0xba45c7E0acf0cB2Bc2091B2dd8e0900e07a75539', # DevFaucetServer address - to be updated  
         'block_explorer_url': 'https://explorer-animechain-testnet-i8yja6a1a0.t.conduit.xyz/',
         'faucet_type': 'dev'  # Indicates this uses the dev faucet (proof-of-work)
@@ -377,12 +377,20 @@ def request_withdrawal():
                     logging.info(f"Using vrs tuple: {vrs_tuple}")
                     recovered_address = Account.recover_message(encoded_message, vrs=vrs_tuple)
                     
-                    logging.info(f"Expected address: {user_address}")
-                    logging.info(f"Recovered address: {recovered_address}")
+                    logging.info(f"Expected address (from request): {user_address}")
+                    logging.info(f"Recovered address (from signature): {recovered_address}")
                     
                     if recovered_address.lower() != user_address.lower():
                         logging.error(f"DevFaucet signature verification failed. Expected: {user_address}, Got: {recovered_address}")
                         return jsonify({'error': 'Invalid authorization signature'}), 400
+                    
+                    # Normalize to the recovered address to guarantee exact match with signature
+                    try:
+                        user_address = web3.to_checksum_address(recovered_address)
+                        logging.info(f"Using recovered address as user_address for on-chain call: {user_address}")
+                    except Exception:
+                        # Fallback to original if checksum fails (should not happen)
+                        logging.warning("Failed to checksum recovered address; using original user_address")
                     
                     logging.info(f"DevFaucet signature verified successfully for user: {user_address}")
                     

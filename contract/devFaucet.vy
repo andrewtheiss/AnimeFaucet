@@ -100,7 +100,7 @@ def _build_domain_separator() -> bytes32:
         keccak256("DevFaucet"),  # Updated domain name
         keccak256("1"),
         convert(chain.id, bytes32),
-        convert(self, bytes32)
+        concat(empty(bytes12), convert(self, bytes20))  # explicit left-pad address to 32 bytes
     ))
 
 # EIP-712 Message Hash for Withdrawal Request (FIXED - uses anti-replay nonce)
@@ -116,7 +116,7 @@ def _build_withdrawal_message_hash(
 ) -> bytes32:
     return keccak256(concat(
         keccak256("WithdrawalRequest(address recipient,bytes32 chosenBlockHash,uint256 withdrawalIndex,bytes32 ipAddress,uint256 nonce,string message)"),
-        convert(_recipient, bytes32),
+        concat(empty(bytes12), convert(_recipient, bytes20)),  # explicit left-pad address to 32 bytes
         _chosen_block_hash,
         convert(_withdrawal_index, bytes32),
         _ip_address,
