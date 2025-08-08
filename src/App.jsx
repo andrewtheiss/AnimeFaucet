@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import './App.css'
 import Faucet from './components/Faucet'
+import RefillFooter from './components/RefillFooter'
 import { NETWORKS } from './constants/contracts'
 
 // Contract addresses for different networks - updated for devFaucet
@@ -106,18 +107,9 @@ function App() {
         onConnectionUpdate={updateConnectionStatus}
       />
       {!isConnected ? (
-        <p className="read-the-docs">
-          Connect your wallet to request {getTokenSymbol()} tokens
-        </p>
+        <p className="read-the-docs">Connect your wallet to request {getTokenSymbol()} tokens</p>
       ) : (
-        <div className="refill-footer">
-          <button 
-            onClick={() => document.querySelector('.refill-toggle-button')?.click()} 
-            className="footer-refill-button"
-          >
-            🔄 Refill Faucet
-          </button>
-        </div>
+        <RefillFooter contractAddress={contractAddress} network={network} />
       )}
     </>
   )
