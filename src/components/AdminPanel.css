@@ -1,0 +1,172 @@
+/* Admin Panel Styles */
+.admin-panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.admin-section {
+  background-color: #2d2d2d;
+  padding: 15px;
+  border-radius: 6px;
+  border-left: 3px solid #ff6b35;
+}
+
+.admin-section h4 {
+  margin: 0 0 15px 0;
+  color: #ff6b35;
+  font-size: 16px;
+}
+
+.admin-form {
+  width: 100%;
+}
+
+.form-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.admin-select, .admin-input {
+  background-color: #3d3d3d;
+  color: white;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 8px 12px;
+  font-size: 14px;
+  flex: 1;
+  min-width: 120px;
+}
+
+.admin-select:focus, .admin-input:focus {
+  outline: none;
+  border-color: #ff6b35;
+}
+
+.admin-button {
+  background-color: #ff6b35;
+  color: white;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: bold;
+  white-space: nowrap;
+  transition: background-color 0.3s;
+}
+
+.admin-button:hover:not(:disabled) {
+  background-color: #e55a30;
+}
+
+.admin-button:disabled {
+  background-color: #666;
+  cursor: not-allowed;
+}
+
+/* Multiplier Section Styles */
+.multiplier-section {
+  background: linear-gradient(135deg, #2d2d2d 0%, #3d3d3d 100%);
+  border-left: 3px solid #00d4ff;
+}
+
+.multiplier-subsection {
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #3d3d3d;
+  border-radius: 6px;
+  border: 1px solid #555;
+}
+
+.multiplier-subsection:last-child {
+  margin-bottom: 0;
+}
+
+.multiplier-subsection h5 {
+  margin: 0 0 10px 0;
+  color: #00d4ff;
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.multiplier-info {
+  margin: 0 0 15px 0;
+  font-size: 12px;
+  color: #bbb;
+  font-style: italic;
+}
+
+.multiplier-section h4 {
+  color: #00d4ff;
+  margin-bottom: 20px;
+}
+
+/* Direct Withdrawal Button */
+.direct-withdrawal-button {
+  background: linear-gradient(45deg, #ff6b35, #ff8f65);
+  color: white;
+  font-weight: bold;
+  width: 100%;
+  padding: 12px 20px;
+  margin-top: 10px;
+  transition: all 0.3s;
+}
+
+.direct-withdrawal-button:hover:not(:disabled) {
+  background: linear-gradient(45deg, #e55a30, #ff7050);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(255, 107, 53, 0.3);
+}
+
+.direct-withdrawal-button:disabled {
+  background: #666;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Withdraw All Funds Button */
+.withdraw-all-button {
+  background: linear-gradient(45deg, #dc2626, #ef4444);
+  color: white;
+  font-weight: bold;
+  width: 100%;
+  padding: 12px 20px;
+  margin-top: 10px;
+  transition: all 0.3s;
+  border: 2px solid #dc2626;
+}
+
+.withdraw-all-button:hover:not(:disabled) {
+  background: linear-gradient(45deg, #b91c1c, #dc2626);
+  border-color: #b91c1c;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(220, 38, 38, 0.4);
+}
+
+.withdraw-all-button:disabled {
+  background: #666;
+  border-color: #666;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Responsive Design */
+@media (max-width: 600px) {
+  .form-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .admin-select, .admin-input, .admin-button {
+    width: 100%;
+  }
+  
+  .multiplier-subsection {
+    margin-bottom: 15px;
+  }
+}

@@ -255,20 +255,47 @@ def request_withdrawal():
         # Off-chain checks - different logic for dev faucet vs regular faucet
         try:
             if is_dev_faucet:
-                # Dev faucet logic - temporarily use try/catch for old contract compatibility
+                # Dev faucet logic - consider on-chain 24h reset window
                 try:
                     withdrawal_count = faucet_contract.functions.withdrawal_count(user_address).call()
                 except Exception as e:
                     logging.warning(f"Old contract detected, defaulting to withdrawal_count = 0: {e}")
                     withdrawal_count = 0
-                logging.info(f"User withdrawal count: {withdrawal_count}")
-                
+                logging.info(f"User withdrawal count (raw): {withdrawal_count}")
+
+                # Determine effective count based on first_request_time and latest chain timestamp
+                effective_count = withdrawal_count
+                seconds_until_reset = None
+                try:
+                    first_request_time = faucet_contract.functions.first_request_time(user_address).call()
+                except Exception as e:
+                    logging.warning(f"Could not read first_request_time; assuming no prior requests: {e}")
+                    first_request_time = 0
+
+                # Get chain time for accurate comparison
+                try:
+                    latest_block = web3.eth.get_block('latest')
+                    chain_timestamp = int(latest_block['timestamp']) if isinstance(latest_block, dict) else int(getattr(latest_block, 'timestamp', time.time()))
+                except Exception as e:
+                    logging.warning(f"Could not fetch latest block timestamp; falling back to server time: {e}")
+                    chain_timestamp = int(time.time())
+
+                if first_request_time and chain_timestamp >= first_request_time + 86400:
+                    logging.info("24h window elapsed since first_request_time; treating effective_count as 0")
+                    effective_count = 0
+                elif first_request_time:
+                    seconds_until_reset = (first_request_time + 86400) - chain_timestamp
+                    if seconds_until_reset < 0:
+                        seconds_until_reset = 0
+
+                logging.info(f"Effective withdrawal count (post-reset if applicable): {effective_count}")
+
                 # Check if user has reached daily limit (8 for dev faucet)
-                if withdrawal_count >= 8:
-                    return jsonify({'error': 'User has reached daily withdrawal limit (8/8)'}), 400
-                
-                # Get expected withdrawal index
-                expected_index = withdrawal_count + 1
+                if effective_count >= 8:
+                    return jsonify({'error': 'User has reached daily withdrawal limit (8/8)', 'seconds_until_reset': seconds_until_reset}), 400
+
+                # Get expected withdrawal index based on effective count
+                expected_index = effective_count + 1
                 if withdrawal_index != expected_index:
                     return jsonify({'error': f'Invalid withdrawal index. Expected: {expected_index}, Got: {withdrawal_index}'}), 400
                     

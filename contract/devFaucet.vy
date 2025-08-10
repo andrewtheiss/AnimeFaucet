@@ -1,4 +1,4 @@
-#pragma version >0.4.0
+#pragma version ^0.3.0
 
 # DevFaucet contract with proper nonce separation
 # Separates anti-replay nonce (for EIP-712) from PoW nonce (for mining validation)
@@ -56,29 +56,29 @@ event OwnershipTransferred:
     new_owner: indexed(address)
 
 # Constructor
-@deploy
+@external
 def __init__():
     self.owner = msg.sender
     
     # Initialize withdrawal amounts (in wei) for each index
     self.withdrawal_amounts[0] = 5000000000000000000   # 5.0 ANIME for withdrawal 1
-    self.withdrawal_amounts[1] = 2500000000000000000   # 2.5 ANIME for withdrawal 2
-    self.withdrawal_amounts[2] = 1250000000000000000   # 1.25 ANIME for withdrawal 3
-    self.withdrawal_amounts[3] = 625000000000000000    # 0.625 ANIME for withdrawal 4
-    self.withdrawal_amounts[4] = 312500000000000000    # 0.3125 ANIME for withdrawal 5
-    self.withdrawal_amounts[5] = 156250000000000000    # 0.15625 ANIME for withdrawal 6
-    self.withdrawal_amounts[6] = 78125000000000000     # 0.078125 ANIME for withdrawal 7
-    self.withdrawal_amounts[7] = 39062500000000000     # 0.0390625 ANIME for withdrawal 8
+    self.withdrawal_amounts[1] = 5000000000000000000   # 5.0 ANIME for withdrawal 2
+    self.withdrawal_amounts[2] = 5000000000000000000   # 5.0 ANIME for withdrawal 3
+    self.withdrawal_amounts[3] = 10000000000000000000  # 10.0 ANIME for withdrawal 4
+    self.withdrawal_amounts[4] = 10000000000000000000  # 10.0 ANIME for withdrawal 5
+    self.withdrawal_amounts[5] = 15000000000000000000  # 15.0 ANIME for withdrawal 6
+    self.withdrawal_amounts[6] = 20000000000000000000  # 20.0 ANIME for withdrawal 7
+    self.withdrawal_amounts[7] = 20000000000000000000  # 20.0 ANIME for withdrawal 8
     
     # Initialize PoW difficulty targets for each index
-    self.pow_difficulty_targets[0] = 8000     # Easiest for first withdrawal
-    self.pow_difficulty_targets[1] = 8000
-    self.pow_difficulty_targets[2] = 8000
-    self.pow_difficulty_targets[3] = 8000
-    self.pow_difficulty_targets[4] = 16000    # Increase difficulty for later withdrawals
-    self.pow_difficulty_targets[5] = 32000
-    self.pow_difficulty_targets[6] = 64000
-    self.pow_difficulty_targets[7] = 128000   # Hardest for final withdrawal
+    self.pow_difficulty_targets[0] = 80000     # Easiest for first withdrawal
+    self.pow_difficulty_targets[1] = 160000
+    self.pow_difficulty_targets[2] = 320000
+    self.pow_difficulty_targets[3] = 640000
+    self.pow_difficulty_targets[4] = 1280000    # Increase difficulty for later withdrawals
+    self.pow_difficulty_targets[5] = 2560000
+    self.pow_difficulty_targets[6] = 5120000
+    self.pow_difficulty_targets[7] = 12800000   # Hardest for final withdrawal
     
     # Initialize multipliers
     self.base_amount_multiplier = 1000        # 1x multiplier (1000 = 1x)
@@ -253,7 +253,7 @@ def _execute_withdrawal(
     
     # Calculate withdrawal amount with multiplier
     base_amount: uint256 = self.withdrawal_amounts[_withdrawal_index - 1]
-    withdrawal_amount: uint256 = (base_amount * self.base_amount_multiplier) // 1000
+    withdrawal_amount: uint256 = (base_amount * self.base_amount_multiplier) / 1000
     
     # Check contract balance (including gas reserve)
     assert self.balance >= withdrawal_amount + GAS_RESERVE, "Insufficient contract balance"
@@ -281,7 +281,7 @@ def _execute_withdrawal(
 def _validate_proof_of_work(_chosen_block_hash: bytes32, _user: address, _ip_address: bytes32, _pow_nonce: uint256, _withdrawal_index: uint256):
     # Get difficulty target with multiplier
     base_difficulty: uint256 = self.pow_difficulty_targets[_withdrawal_index - 1]
-    difficulty_target: uint256 = (base_difficulty * self.base_difficulty_multiplier) // 1000
+    difficulty_target: uint256 = (base_difficulty * self.base_difficulty_multiplier) / 1000
     
     # Calculate the proof-of-work hash using _user (recipient) instead of msg.sender
     pow_hash: bytes32 = keccak256(concat(
@@ -301,7 +301,7 @@ def _validate_proof_of_work(_chosen_block_hash: bytes32, _user: address, _ip_add
 def get_difficulty_target(_withdrawal_index: uint256) -> uint256:
     assert _withdrawal_index >= 1 and _withdrawal_index <= MAX_DAILY_WITHDRAWALS, "Invalid withdrawal index"
     base_difficulty: uint256 = self.pow_difficulty_targets[_withdrawal_index - 1]
-    return (base_difficulty * self.base_difficulty_multiplier) // 1000
+    return (base_difficulty * self.base_difficulty_multiplier) / 1000
 
 # View function to get the withdrawal amount for a specific index
 @external
@@ -309,7 +309,7 @@ def get_difficulty_target(_withdrawal_index: uint256) -> uint256:
 def get_withdrawal_amount(_withdrawal_index: uint256) -> uint256:
     assert _withdrawal_index >= 1 and _withdrawal_index <= MAX_DAILY_WITHDRAWALS, "Invalid withdrawal index"
     base_amount: uint256 = self.withdrawal_amounts[_withdrawal_index - 1]
-    return (base_amount * self.base_amount_multiplier) // 1000
+    return (base_amount * self.base_amount_multiplier) / 1000
 
 # View function to get the expected message for a specific withdrawal index
 @external

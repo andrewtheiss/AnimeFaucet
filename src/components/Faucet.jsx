@@ -3,6 +3,7 @@ import { ethers } from 'ethers';
 import { FAUCET_ABI, DEV_FAUCET_ABI, FAUCET_SERVER_ABI, DEV_FAUCET_SERVER_ABI, NETWORKS, WITHDRAWAL_MESSAGES, DEV_FAUCET_MESSAGES } from '../constants/contracts';
 import animecoinIcon from '../assets/animecoin.png';
 import animeBackground from '../assets/anime.webp';
+import AdminPanel from './AdminPanel';
 // EIP-712 Debug Panel removed
 
 // Define constants to match contract
@@ -42,6 +43,8 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
   const [lastRecipient, setLastRecipient] = useState('');
   const [timerInitialized, setTimerInitialized] = useState(false);
   const [lastTxHash, setLastTxHash] = useState('');
+  const [uiCooldownUntil, setUiCooldownUntil] = useState(0);
+  const [uiCooldownTick, setUiCooldownTick] = useState(0); // Force re-renders for UI cooldown
   
   // Admin state variables
   const [isAdmin, setIsAdmin] = useState(false);
@@ -57,6 +60,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
   const [powData, setPowData] = useState(null);
   const [powProgress, setPowProgress] = useState(0);
   const [powStartTime, setPowStartTime] = useState(null);
+  const [showMessage, setShowMessage] = useState(false);
   
   // Server endpoint preference for localhost users
   const [useLocalServer, setUseLocalServer] = useState(true);
@@ -92,6 +96,29 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     const seconds = cooldownSeconds % 60;
     return `${minutes} minute${minutes !== 1 ? 's' : ''} ${seconds} second${seconds !== 1 ? 's' : ''}`;
   };
+
+  // UI-only 60s cooldown after each withdrawal
+  const uiCooldownRemaining = () => {
+    const now = Math.floor(Date.now() / 1000);
+    return Math.max(0, uiCooldownUntil - now);
+  };
+  const formatUiCooldown = () => {
+    const s = uiCooldownRemaining();
+    if (s <= 0) return '';
+    return `${s} second${s !== 1 ? 's' : ''}`;
+  };
+  useEffect(() => {
+    if (!uiCooldownUntil) return;
+    const t = setInterval(() => {
+      const remain = uiCooldownRemaining();
+      if (remain === 0) {
+        clearInterval(t);
+      }
+      // Force component re-render to update button text
+      setUiCooldownTick(prev => prev + 1);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [uiCooldownUntil]);
 
   const calculateCooldown = () => {
     // If no prior withdrawal, cooldown is 0
@@ -266,16 +293,31 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           setNonce(nonce.toString());
           console.log("Account nonce:", nonce.toString());
           const count = await contractToUse.withdrawal_count(accountToUse);
-          console.log("Account withdrawal count:", Number(count));
-          setWithdrawalCount(Number(count));
+          // Compute effective count based on 24h reset window
+          let effectiveCount = Number(count);
           try {
-            const withdrawalIndex = Number(count) + 1;
+            const firstTime = await contractToUse.first_request_time(accountToUse);
+            let chainTs = 0n;
+            try {
+              const latestBlock = await provider.getBlock('latest');
+              chainTs = BigInt(latestBlock?.timestamp ?? Math.floor(Date.now() / 1000));
+            } catch {
+              chainTs = BigInt(Math.floor(Date.now() / 1000));
+            }
+            if (firstTime && chainTs >= BigInt(firstTime) + 86400n) {
+              effectiveCount = 0;
+            }
+          } catch {}
+          console.log("Account withdrawal count (effective):", effectiveCount);
+          setWithdrawalCount(effectiveCount);
+          try {
+            const withdrawalIndex = effectiveCount + 1;
             const message = await contractToUse.get_expected_message(withdrawalIndex);
             console.log("Expected message from contract (DevFaucet):", message);
             setExpectedMessage(message);
           } catch (msgErr) {
             console.error("Error getting expected message (DevFaucet):", msgErr);
-            const fallbackMessage = DEV_FAUCET_MESSAGES[Number(count)] || "";
+            const fallbackMessage = DEV_FAUCET_MESSAGES[effectiveCount] || "";
             setExpectedMessage(fallbackMessage);
           }
         } else {
@@ -349,11 +391,26 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           setNonce(nonce.toString());
           
           const count = await contract.withdrawal_count(account);
-          setWithdrawalCount(Number(count));
+          // Compute effective count based on 24h reset window
+          let effectiveCount = Number(count);
+          try {
+            const firstTime = await contract.first_request_time(account);
+            let chainTs = 0n;
+            try {
+              const latestBlock = await provider.getBlock('latest');
+              chainTs = BigInt(latestBlock?.timestamp ?? Math.floor(Date.now() / 1000));
+            } catch {
+              chainTs = BigInt(Math.floor(Date.now() / 1000));
+            }
+            if (firstTime && chainTs >= BigInt(firstTime) + 86400n) {
+              effectiveCount = 0;
+            }
+          } catch {}
+          setWithdrawalCount(effectiveCount);
           
           // Check faucet has enough funds for the upcoming withdrawal before allowing mining
           try {
-            const withdrawalIndex = Number(count) + 1; // 1-based index
+            const withdrawalIndex = effectiveCount + 1; // 1-based index
             const amountWei = await contract.get_withdrawal_amount(withdrawalIndex);
             setExpectedWithdrawalAmountWei(amountWei);
             setExpectedWithdrawalAmount(ethers.formatEther(amountWei));
@@ -364,12 +421,6 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
             console.warn('Could not fetch expected withdrawal amount:', amountErr);
             // Fallback: if we cannot determine, do not block mining
             setHasSufficientFunds(true);
-          }
-          
-          // If this was a gasless first withdrawal, count will have increased
-          // Ensure UI reflects it immediately
-          if (Number(count) > 0) {
-            setSuccessMessage(prev => prev || 'Your previous gasless withdrawal was processed.');
           }
           
           try {
@@ -526,6 +577,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     try {
       setLoading(true);
       setError('');
+      setSuccessMessage(''); // Clear any previous success messages
       console.log("Starting withdrawal process...");
       
       // Verify faucet has enough funds right before signing/submitting
@@ -629,10 +681,22 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           throw new Error('No message available for DevFaucet. Please refresh and try again.');
         }
         
-        console.log("🚀 DevFaucet - Requesting user signature for:", messageToSign);
+        console.log("🚀 DevFaucet - Preparing authorization for:", messageToSign);
         
-        // For first withdrawal via server, user must sign to authorize the server
-        if (withdrawalCount === 0) {
+        // Decide early if we will use the server (to avoid double signature prompts)
+        let useServerForSigning = withdrawalCount === 0;
+        if (useServerForSigning) {
+          try {
+            const userBalWei = await provider.getBalance(account);
+            const thresholdWei = ethers.parseEther('0.001');
+            if (userBalWei >= thresholdWei) {
+              useServerForSigning = false; // user will send tx directly, no server signature needed
+            }
+          } catch {}
+        }
+
+        // Only request EIP-712 signature if we truly plan to use the server path
+        if (useServerForSigning) {
           // Create EIP-712 signature for server authorization
           const domain = {
             name: 'DevFaucet',
@@ -719,8 +783,10 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         throw new Error('Please complete proof-of-work mining before requesting tokens.');
       }
 
-      // Decide server path based on user balance (skip gasless if user has >= 0.001)
-      let useServer = withdrawalCount === 0;
+      // Decide server path:
+      // - Original faucet: ALWAYS use server so user signs only once (EIP-712), server pays gas
+      // - Dev faucet: use server only for first withdrawal if user lacks gas
+      let useServer = !isDevFaucet || withdrawalCount === 0;
       if (isDevFaucet && withdrawalCount === 0) {
         try {
           const userBalWei = await provider.getBalance(account);
@@ -871,8 +937,21 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         // DevFaucet uses message parameter, not signature components
         const messageToSign = expectedMessage || DEV_FAUCET_MESSAGES[withdrawalCount];
         try {
-          const liveCount = await contract.withdrawal_count(account);
-          const nextIndex = Number(liveCount) + 1;
+          const liveCountNow = await contract.withdrawal_count(account);
+          let nextIndex = Number(liveCountNow) + 1;
+          try {
+            const firstTime = await contract.first_request_time(account);
+            let chainTs = 0n;
+            try {
+              const latestBlock = await provider.getBlock('latest');
+              chainTs = BigInt(latestBlock?.timestamp ?? Math.floor(Date.now() / 1000));
+            } catch {
+              chainTs = BigInt(Math.floor(Date.now() / 1000));
+            }
+            if (firstTime && chainTs >= BigInt(firstTime) + 86400n) {
+              nextIndex = 1; // reset window passed
+            }
+          } catch {}
           const gasEstimate = await contractWithSigner.withdraw.estimateGas(
             powData.chosenBlockHash,
             nextIndex,
@@ -889,9 +968,22 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         // SINGLE SIGNATURE: Call devFaucet withdraw with message parameter (no EIP-712 components)
         console.log('🚀 Using SINGLE SIGNATURE DevFaucet withdrawal:', messageToSign);
         
-        // Use live next index instead of stale powData.withdrawalIndex
+        // Use effective next index (respects 24h reset)
         const liveCount = await contract.withdrawal_count(account);
-        const nextIndex = Number(liveCount) + 1;
+        let nextIndex = Number(liveCount) + 1;
+        try {
+          const firstTime = await contract.first_request_time(account);
+          let chainTs = 0n;
+          try {
+            const latestBlock = await provider.getBlock('latest');
+            chainTs = BigInt(latestBlock?.timestamp ?? Math.floor(Date.now() / 1000));
+          } catch {
+            chainTs = BigInt(Math.floor(Date.now() / 1000));
+          }
+          if (firstTime && chainTs >= BigInt(firstTime) + 86400n) {
+            nextIndex = 1; // reset window passed
+          }
+        } catch {}
         const tx = await contractWithSigner.withdraw(
           powData.chosenBlockHash,
           nextIndex,
@@ -904,6 +996,8 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         setLastTxHash(tx.hash);
         const receipt = await tx.wait();
         console.log("DevFaucet transaction confirmed!", receipt?.hash || tx.hash);
+        // Start UI-only cooldown window (60 seconds)
+        setUiCooldownUntil(Math.floor(Date.now() / 1000) + 60);
         // Refresh critical state after confirmation to avoid stale next index
         await updateInfo(account, contract);
         await updateBalanceAndUserInfo();
@@ -1234,15 +1328,54 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     }
   };
 
+  // Function to preload difficulty and withdrawal amount for display
+  const preloadDifficulty = async () => {
+    if (!contract || !account || !isDevFaucet) return;
+    
+    try {
+      const liveCount = await contract.withdrawal_count(account);
+      const withdrawalIndex = Number(liveCount) + 1;
+      const difficultyTarget = await getDifficultyTarget(withdrawalIndex);
+      
+      // Also fetch the withdrawal amount for this index
+      const amountWei = await contract.get_withdrawal_amount(withdrawalIndex);
+      const amountFormatted = ethers.formatEther(amountWei);
+      
+      // Update powData with difficulty and amount for display
+      setPowData(prev => ({
+        ...prev,
+        difficultyTarget,
+        withdrawalIndex
+      }));
+      
+      // Update expected withdrawal amount
+      setExpectedWithdrawalAmountWei(amountWei);
+      setExpectedWithdrawalAmount(amountFormatted);
+    } catch (err) {
+      console.warn('Could not preload difficulty and amount:', err);
+    }
+  };
+
   // Reset PoW state when withdrawal count changes
   useEffect(() => {
     if (isDevFaucet) {
       setPowComplete(false);
-      setPowData(null);
+      // Don't reset powData to null completely - preserve difficulty if available
+      setPowData(prev => prev ? { ...prev, nonce: 0, powHash: null, miningTime: 0 } : null);
       setPowProgress(0);
       setPowMining(false); // Also reset mining state
+      
+      // Preload difficulty for the next withdrawal
+      preloadDifficulty();
     }
   }, [withdrawalCount, isDevFaucet]);
+
+  // Also preload difficulty when contract and account are available
+  useEffect(() => {
+    if (contract && account && isDevFaucet) {
+      preloadDifficulty();
+    }
+  }, [contract, account, isDevFaucet]);
 
   // Admin Functions
   const handleUpdateWithdrawalAmount = async (index, amount) => {
@@ -1259,7 +1392,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       // Convert amount to wei
       const amountInWei = ethers.parseEther(amount.toString());
       
-      const tx = await contractWithSigner.updateWithdrawalAmount(index, amountInWei);
+      const tx = await contractWithSigner.update_withdrawal_amount(index, amountInWei);
       await tx.wait();
       
       setAdminSuccess(`Successfully updated withdrawal amount for index ${index} to ${amount} tokens`);
@@ -1283,7 +1416,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       const signer = await provider.getSigner();
       const contractWithSigner = contract.connect(signer);
       
-      const tx = await contractWithSigner.updatePowDifficulty(index, difficulty);
+      const tx = await contractWithSigner.update_pow_difficulty(index, difficulty);
       await tx.wait();
       
       setAdminSuccess(`Successfully updated PoW difficulty for index ${index} to ${difficulty}`);
@@ -1307,7 +1440,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       const signer = await provider.getSigner();
       const contractWithSigner = contract.connect(signer);
       
-      const tx = await contractWithSigner.updateCooldownPeriod(period);
+      const tx = await contractWithSigner.update_cooldown_period(period);
       await tx.wait();
       
       setAdminSuccess(`Successfully updated cooldown period to ${period} seconds`);
@@ -1331,7 +1464,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       const signer = await provider.getSigner();
       const contractWithSigner = contract.connect(signer);
       
-      const tx = await contractWithSigner.updateBaseAmountMultiplier(multiplier);
+      const tx = await contractWithSigner.update_base_amount_multiplier(multiplier);
       await tx.wait();
       
       const displayMultiplier = (multiplier / 1000).toFixed(2);
@@ -1356,7 +1489,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       const signer = await provider.getSigner();
       const contractWithSigner = contract.connect(signer);
       
-      const tx = await contractWithSigner.updateBaseDifficultyMultiplier(multiplier);
+      const tx = await contractWithSigner.update_base_difficulty_multiplier(multiplier);
       await tx.wait();
       
       const displayMultiplier = (multiplier / 1000).toFixed(2);
@@ -1411,6 +1544,52 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       console.log('========================');
     } catch (err) {
       console.error('Error in debug info:', err);
+    }
+  };
+
+  const handleWithdrawAllFunds = async () => {
+    if (!contract || !account || !isAdmin || !provider) {
+      setAdminError('Not authorized or contract not connected');
+      return;
+    }
+
+    try {
+      setAdminLoading(true);
+      setAdminError('');
+      setAdminSuccess('');
+
+      // Get current contract balance
+      const currentBalance = await contract.get_balance ? await contract.get_balance() : await provider.getBalance(contractAddress);
+      
+      if (Number(currentBalance) === 0) {
+        setAdminError('No funds to withdraw - contract balance is 0');
+        return;
+      }
+
+      console.log(`Withdrawing all funds: ${ethers.formatEther(currentBalance)} ${networkConfig.nativeCurrency.symbol}`);
+
+      // Get signer and connect contract to it for transaction
+      const signer = await provider.getSigner();
+      const contractWithSigner = contract.connect(signer);
+
+      // Call withdraw_balance with the full balance
+      const tx = await contractWithSigner.withdraw_balance(currentBalance);
+      console.log('Withdraw all funds transaction sent:', tx.hash);
+
+      await tx.wait();
+      console.log('Withdraw all funds transaction confirmed');
+
+      setAdminSuccess(`Successfully withdrew all funds: ${ethers.formatEther(currentBalance)} ${networkConfig.nativeCurrency.symbol}`);
+      
+      // Refresh contract info
+      await updateInfo();
+      await updateUserBalance();
+      
+    } catch (err) {
+      console.error('Error withdrawing all funds:', err);
+      setAdminError(`Withdraw all funds failed: ${err.message}`);
+    } finally {
+      setAdminLoading(false);
     }
   };
 
@@ -1514,56 +1693,36 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         console.log('Proceeding - contract will validate the block hash');
       }
 
-      const updatedPowData = powData;
-      
       const signer = await provider.getSigner();
       const contractWithSigner = contract.connect(signer);
-      
-      // Build EIP-712 signature for admin withdrawal
-      const domain = {
-        name: "Faucet",
-        version: "1",
-        chainId: parseInt(networkConfig.chainId, 16),
-        verifyingContract: contractAddress
-      };
-      
-      const types = {
-        FaucetRequest: [
-          { name: "recipient", type: "address" },
-          { name: "message", type: "string" },
-          { name: "nonce", type: "uint256" }
-        ]
-      };
-      
-      const messageToSign = expectedMessage || DEV_FAUCET_MESSAGES[withdrawalCount] || "Admin test withdrawal";
-      
-      const message = {
-        recipient: account,
-        message: messageToSign,
-        nonce: Number(nonce)
-      };
-      
-      // EXPLANATION: Two signatures are actually required by design:
-      // 1. EIP-712 signature (creates v,r,s parameters for contract verification)
-      // 2. Transaction signature (authorizes sending the transaction)
-      // This is the secure way the contract validates both the message and the sender
-      
-      console.log('🔒 Step 1: Creating EIP-712 message signature for contract verification...');
-      const signature = await signer.signTypedData(domain, types, message);
-      const sig = ethers.Signature.from(signature);
-      
-      console.log('📤 Step 2: Submitting transaction with signature components...');
-      console.log('Admin direct withdrawal with PoW data:', updatedPowData);
-      
-      // The contract needs these signature components to verify you authorized this specific message
+
+      // DevFaucet direct withdraw uses single-signature flow: pass the message string
+      const messageToSend = expectedMessage || DEV_FAUCET_MESSAGES[withdrawalCount] || "Admin test withdrawal";
+
+      // Prefer live next index over any stale state
+      const liveCountNow = await contract.withdrawal_count(account);
+      const nextIndexNow = Number(liveCountNow) + 1;
+
+      // Estimate gas first to surface errors early
+      try {
+        await contractWithSigner.withdraw.estimateGas(
+          powData.chosenBlockHash,
+          nextIndexNow,
+          powData.ipAddressHash,
+          powData.nonce,
+          messageToSend
+        );
+      } catch (estimateError) {
+        console.error('Direct withdrawal gas estimation failed:', estimateError);
+        throw new Error(`Transaction would fail: ${estimateError.reason || estimateError.message}`);
+      }
+
       const tx = await contractWithSigner.withdraw(
-        updatedPowData.chosenBlockHash,
-        updatedPowData.withdrawalIndex,
-        updatedPowData.ipAddressHash,
-        updatedPowData.nonce,  // _pow_nonce: Use the PoW nonce for mining validation
-        sig.v,
-        sig.r,
-        sig.s
+        powData.chosenBlockHash,
+        nextIndexNow,
+        powData.ipAddressHash,
+        powData.nonce,
+        messageToSend
       );
       
       console.log("Admin direct withdrawal transaction submitted:", tx.hash);
@@ -1591,212 +1750,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
 
   const isTestnet = network === 'animechain_testnet';
   
-  // Admin Panel Component
-  const AdminPanel = ({ onUpdateWithdrawalAmount, onUpdatePowDifficulty, onUpdateCooldownPeriod, onUpdateBaseAmountMultiplier, onUpdateBaseDifficultyMultiplier, onDirectWithdrawal, onDebugBlockInfo, loading }) => {
-    const [withdrawalIndex, setWithdrawalIndex] = useState(1);
-    const [withdrawalAmount, setWithdrawalAmount] = useState('');
-    const [difficultyIndex, setDifficultyIndex] = useState(1);
-    const [difficultyValue, setDifficultyValue] = useState('');
-    const [cooldownPeriod, setCooldownPeriod] = useState('');
-    const [baseAmountMultiplier, setBaseAmountMultiplier] = useState('');
-    const [baseDifficultyMultiplier, setBaseDifficultyMultiplier] = useState('');
 
-    const handleWithdrawalAmountSubmit = (e) => {
-      e.preventDefault();
-      if (withdrawalAmount && withdrawalIndex >= 1 && withdrawalIndex <= 8) {
-        onUpdateWithdrawalAmount(withdrawalIndex, withdrawalAmount);
-        setWithdrawalAmount('');
-      }
-    };
-
-    const handleDifficultySubmit = (e) => {
-      e.preventDefault();
-      if (difficultyValue && difficultyIndex >= 1 && difficultyIndex <= 8) {
-        onUpdatePowDifficulty(difficultyIndex, parseInt(difficultyValue));
-        setDifficultyValue('');
-      }
-    };
-
-    const handleCooldownSubmit = (e) => {
-      e.preventDefault();
-      if (cooldownPeriod !== '') {
-        onUpdateCooldownPeriod(parseInt(cooldownPeriod));
-        setCooldownPeriod('');
-      }
-    };
-
-    const handleBaseAmountMultiplierSubmit = (e) => {
-      e.preventDefault();
-      if (baseAmountMultiplier !== '') {
-        // Convert decimal to integer (1.5 -> 1500)
-        const multiplierInt = Math.round(parseFloat(baseAmountMultiplier) * 1000);
-        onUpdateBaseAmountMultiplier(multiplierInt);
-        setBaseAmountMultiplier('');
-      }
-    };
-
-    const handleBaseDifficultyMultiplierSubmit = (e) => {
-      e.preventDefault();
-      if (baseDifficultyMultiplier !== '') {
-        // Convert decimal to integer (1.5 -> 1500)
-        const multiplierInt = Math.round(parseFloat(baseDifficultyMultiplier) * 1000);
-        onUpdateBaseDifficultyMultiplier(multiplierInt);
-        setBaseDifficultyMultiplier('');
-      }
-    };
-
-    return (
-      <div className="admin-panel-content">
-        <div className="admin-section">
-          <h4>💰 Update Withdrawal Amount</h4>
-          <form onSubmit={handleWithdrawalAmountSubmit} className="admin-form">
-            <div className="form-row">
-              <select 
-                value={withdrawalIndex} 
-                onChange={(e) => setWithdrawalIndex(parseInt(e.target.value))}
-                className="admin-select"
-              >
-                {[1,2,3,4,5,6,7,8].map(i => (
-                  <option key={i} value={i}>Index {i} (currently {[5,5,10,15,25,50,75,100][i-1]} tokens)</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                value={withdrawalAmount}
-                onChange={(e) => setWithdrawalAmount(e.target.value)}
-                placeholder="New amount (tokens)"
-                className="admin-input"
-                min="0"
-                step="0.1"
-              />
-              <button type="submit" disabled={loading || !withdrawalAmount} className="admin-button">
-                Update Amount
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div className="admin-section">
-          <h4>⛏️ Update PoW Difficulty</h4>
-          <form onSubmit={handleDifficultySubmit} className="admin-form">
-            <div className="form-row">
-              <select 
-                value={difficultyIndex} 
-                onChange={(e) => setDifficultyIndex(parseInt(e.target.value))}
-                className="admin-select"
-              >
-                {[1,2,3,4,5,6,7,8].map(i => (
-                  <option key={i} value={i}>Index {i} (currently {[8000,8000,8000,8000,16000,32000,64000,128000][i-1]})</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                value={difficultyValue}
-                onChange={(e) => setDifficultyValue(e.target.value)}
-                placeholder="New difficulty"
-                className="admin-input"
-                min="1000"
-                step="1000"
-              />
-              <button type="submit" disabled={loading || !difficultyValue} className="admin-button">
-                Update Difficulty
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div className="admin-section">
-          <h4>⏰ Update Cooldown Period</h4>
-          <form onSubmit={handleCooldownSubmit} className="admin-form">
-            <div className="form-row">
-              <input
-                type="number"
-                value={cooldownPeriod}
-                onChange={(e) => setCooldownPeriod(e.target.value)}
-                placeholder="Cooldown period (seconds, 0 = no cooldown)"
-                className="admin-input"
-                min="0"
-                step="1"
-              />
-              <button type="submit" disabled={loading || cooldownPeriod === ''} className="admin-button">
-                Update Cooldown
-              </button>
-            </div>
-          </form>
-        </div>
-
-        <div className="admin-section multiplier-section">
-          <h4>🎯 Global Multipliers</h4>
-          
-          <div className="multiplier-subsection">
-            <h5>💰 Base Amount Multiplier</h5>
-            <p className="multiplier-info">Multiplies all withdrawal amounts (1.0 = default, 2.0 = double amounts)</p>
-            <form onSubmit={handleBaseAmountMultiplierSubmit} className="admin-form">
-              <div className="form-row">
-                <input
-                  type="number"
-                  value={baseAmountMultiplier}
-                  onChange={(e) => setBaseAmountMultiplier(e.target.value)}
-                  placeholder="Amount multiplier (e.g., 1.5 for 1.5x)"
-                  className="admin-input"
-                  min="0.1"
-                  step="0.1"
-                />
-                <button type="submit" disabled={loading || !baseAmountMultiplier} className="admin-button">
-                  Update Amount Multiplier
-                </button>
-              </div>
-            </form>
-          </div>
-
-          <div className="multiplier-subsection"> 
-            <h5>⛏️ Base Difficulty Multiplier</h5>
-            <p className="multiplier-info">Multiplies all PoW difficulties (1.0 = default, 2.0 = double difficulty)</p>
-            <form onSubmit={handleBaseDifficultyMultiplierSubmit} className="admin-form">
-              <div className="form-row">
-                <input
-                  type="number"
-                  value={baseDifficultyMultiplier}
-                  onChange={(e) => setBaseDifficultyMultiplier(e.target.value)}
-                  placeholder="Difficulty multiplier (e.g., 0.5 for 0.5x)"
-                  className="admin-input"
-                  min="0.1"
-                  step="0.1"
-                />
-                <button type="submit" disabled={loading || !baseDifficultyMultiplier} className="admin-button">
-                  Update Difficulty Multiplier
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-
-        <div className="admin-section">
-          <h4>🧪 Direct Withdrawal Test</h4>
-          <p className="multiplier-info">Test direct contract interaction bypassing the server (requires completed PoW)</p>
-          <button 
-            onClick={onDirectWithdrawal}
-            disabled={loading || !powComplete}
-            className="admin-button direct-withdrawal-button"
-          >
-            {!powComplete ? 'Complete Mining First' : '🚀 Test Direct Withdrawal'}
-          </button>
-        </div>
-
-        <div className="admin-section">
-          <h4>🔍 Debug Block Info</h4>
-          <p className="multiplier-info">Debug blockchain block numbers and contract state</p>
-          <button 
-            onClick={onDebugBlockInfo}
-            disabled={loading}
-            className="admin-button"
-          >
-            🔍 Debug Block Info (Check Console)
-          </button>
-        </div>
-      </div>
-    );
-  };
   
   // Render progress steps dynamically
   const renderProgressSteps = () => {
@@ -1908,127 +1862,117 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
             </div>
           </div>
           {withdrawalCount < maxWithdrawals && (
-            <div className="messages-container">
-              <h3>{isDevFaucet ? 'Step 2: Sign Message to get tokens' : `Sign Message to get 0.1 ${networkConfig.nativeCurrency.symbol}`}</h3>
-              <p className="signature-info">A unique signature is required for each withdrawal {isDevFaucet ? '(daily reset)' : '(global 7.5 minute cooldown)'}</p>
-              <div className="message-progress">
-                {renderProgressSteps()}
-              </div>
-              {withdrawalCount === 0 && (
-                <div className="first-withdrawal-info">
-                  <p>Your first withdrawal will be processed through our server to simplify the gas payment process.</p>
-                  <p>Subsequent withdrawals will interact with the contract directly.</p>
-                </div>
-              )}
-              <div className="current-message">
-                <div className="message-content">
-                  <div className="message-highlight"><p><b>{getDisplayMessage(withdrawalCount)}</b></p></div>
-                  {expectedMessage && expectedMessage !== (isDevFaucet ? DEV_FAUCET_MESSAGES[withdrawalCount] : WITHDRAWAL_MESSAGES[withdrawalCount]) && (
-                    <div className="expected-message">
-                      <p><strong>Contract expects:</strong> {isDevFaucet ? expectedMessage : expectedMessage.replace("  Also, Earth domain is best.", "")}</p>
-                    </div>
-                  )}
-                  <div>
-                    <p className="message-message">
-                      {isDevFaucet ? 
-                        `Sign the above message to receive ${[5,5,10,15,25,50,75,100][withdrawalCount] || 5} tokens:` :
-                        'Sign the above message to receive 0.1 Anime Coin:'
-                      }
-                    </p>
-                  </div>
-                  {withdrawalCount === 0 && (
-                    <div className="server-info">
-                      <p>📡 First withdrawal will use server API at {
-                        isLocalhost 
-                          ? (useLocalServer ? 'localhost:5000' : 'faucet.animechain.dev')
-                          : 'faucet.animechain.dev'
-                      } to pay for gas</p>
+            <div className="phases-container">
                       {isDevFaucet && (
-                        <p>💡 <strong>Note:</strong> DevFaucet server supports PoW mining + gas assistance for first withdrawal.</p>
-                      )}
-                    </div>
-                  )}
-                  {/* DevFaucet details moved to footer dropdown */}
-                  
-                  {isDevFaucet && (
-                    <div className="pow-mining-container">
+                <div className="phase-line">
+                  <span className="phase-label">Phase 1: Mine PoW</span>
+                  <span className="phase-difficulty">diff: {powData?.difficultyTarget?.toLocaleString() || 'loading'}</span>
+                  <div className="phase-status">
                       {!powComplete ? (
-                        <div className="pow-mining-section">
-                          <h4>Step 1: Mine Proof-of-Work</h4>
-                          {!powMining ? (
-                            <>
-                              {!hasSufficientFunds && (
-                                <div className="insufficient-funds-banner">
-                                  <p>
-                                    Faucet balance is low. Required ≈ {expectedWithdrawalAmount} + 0.01 for gas. Current: {balance} {networkConfig.nativeCurrency.symbol}
-                                  </p>
-                                  <button onClick={refreshFaucetBalance} disabled={refreshingBalance} className="refresh-cooldown-button">
-                                    {refreshingBalance ? 'Refreshing…' : 'Refresh Faucet Balance'}
-                                  </button>
-                                </div>
-                              )}
+                      !powMining ? (
                               <button
                                 onClick={startPowMining}
-                                disabled={loading || withdrawalCount >= 8 || !hasSufficientFunds}
-                                className="pow-start-button"
-                              >
-                                { !hasSufficientFunds ? '⛔ Faucet empty - try later' : '⛏️ Start Mining Proof-of-Work' }
+                                disabled={
+                                  loading ||
+                                  withdrawalCount >= 8 ||
+                                  !hasSufficientFunds ||
+                                  uiCooldownRemaining() > 0
+                                }
+                          className="phase-button"
+                        >
+                          {!hasSufficientFunds
+                            ? '⛔ Empty'
+                            : uiCooldownRemaining() > 0
+                              ? `Wait ${formatUiCooldown()}`
+                              : '⛏️ Mine'}
                               </button>
-                            </>
-                          ) : (
-                            <div className="pow-mining-status">
-                              <div className="mining-spinner">⛏️</div>
-                              <p>Mining in progress... ({powProgress.toFixed(1)}%)</p>
-                              <div className="pow-progress-bar">
-                                <div className="pow-progress-fill" style={{ width: `${powProgress}%` }}></div>
-                              </div>
-                              <p className="mining-stats">
-                                Difficulty: {powData?.difficultyTarget?.toLocaleString() || 'Loading...'} | 
-                                Time: {powStartTime ? ((Date.now() - powStartTime) / 1000).toFixed(1) : 0}s
-                              </p>
-                            </div>
-                          )}
-                        </div>
                       ) : (
-                        <div className="pow-complete-section">
-                          <h4>✅ Proof-of-Work Complete!</h4>
-                          <div className="pow-success-info">
-                            <p>🎯 <strong>Valid hash found!</strong></p>
-                            <p>⛏️ Nonce: {powData?.nonce?.toLocaleString()}</p>
-                            <p>⏱️ Mining time: {powData?.miningTime?.toFixed(2)}s</p>
-                            <p>🔗 Hash: {powData?.powHash?.substring(0, 10)}...{powData?.powHash?.substring(powData.powHash.length - 6)}</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                        <div className="phase-mining">
+                          <span>⛏️ {powProgress.toFixed(0)}%</span>
+                          <div className="mini-progress">
+                            <div className="mini-fill" style={{ width: `${powProgress}%` }}></div>
+                              </div>
+                            </div>
+                      )
+                    ) : (
+                      <span className="phase-complete">✅ {powData?.miningTime?.toFixed(1)}s</span>
+                          )}
+                    {/* Always show progress dots (8 steps) inline below phases */}
               </div>
             </div>
           )}
-          <div className="actions-container">
+              
+              <div className="phase-line">
+                <span className="phase-label">{isDevFaucet ? 'Phase 2: Sign Message' : 'Sign Message'}</span>
+                <span className="phase-tokens">{isDevFaucet ? (expectedWithdrawalAmount ? `${Number(expectedWithdrawalAmount).toLocaleString()} ANIME` : 'loading') : '0.1 tokens'}</span>
             <button
+                  className={`phase-button ${isDevFaucet && powComplete ? 'pow-ready' : ''}`}
               onClick={handleWithdraw}
               disabled={
                 loading ||
                 serverLoading ||
                 Number(cooldown) > 0 ||
+                uiCooldownRemaining() > 0 ||
                 (isDevFaucet ? (withdrawalCount >= 8 || !powComplete || !hasSufficientFunds) : withdrawalCount >= 3)
               }
-              className={`action-button ${isDevFaucet && powComplete ? 'pow-ready' : ''}`}
             >
               {loading ? 'Processing...' :
                 serverLoading ? 'Sending to Server...' :
-                (isDevFaucet && !hasSufficientFunds) ? 'Faucet empty - try later' :
-                isDevFaucet && withdrawalCount >= 8 ? 'Daily limit reached (8/8)' :
-                !isDevFaucet && withdrawalCount >= 3 ? 'Maximum withdrawals reached (3/3)' :
-                Number(cooldown) > 0 ? `Faucet available in ${formatCooldown()}` :
-                isDevFaucet && !powComplete ? 'Complete Mining First (Step 1)' :
-                isDevFaucet && powComplete ? '🚀 PoW Hash Found! Get Faucet Anime (SINGLE SIGNATURE!)' :
-                withdrawalCount === 0 ? `Sign & Request via Server (First Withdrawal)` :
-                `Sign & Request 0.1 ${networkConfig.nativeCurrency.symbol} Directly`}
+                    isDevFaucet ? (
+                      (isDevFaucet && !hasSufficientFunds) ? 'Faucet empty' :
+                      withdrawalCount >= 8 ? 'Daily limit reached' :
+                      Number(cooldown) > 0 ? `Available in ${formatCooldown()}` :
+                      uiCooldownRemaining() > 0 ? `Wait ${formatUiCooldown()}` :
+                      !powComplete ? 'PoW Required' :
+                      powComplete ? 'Sign & Claim' :
+                      'Sign'
+                    ) : (
+                      withdrawalCount >= 3 ? 'Maximum reached' :
+                      Number(cooldown) > 0 ? `Available in ${formatCooldown()}` :
+                      withdrawalCount === 0 ? 'Sign & Request (Server)' :
+                      'Sign & Request'
+                    )
+                  }
             </button>
+                <span 
+                  className="phase-toggle"
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setShowMessage(!showMessage)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setShowMessage(!showMessage); }}
+                  aria-expanded={showMessage}
+                >
+                  {showMessage ? '▼' : '▶'} msg
+                </span>
           </div>
+
+              <div className="message-progress">
+                {renderProgressSteps()}
+              </div>
+              
+              {showMessage && (
+                <div className="message-details">
+                  <div className="message-highlight">
+                    <p><b>{getDisplayMessage(withdrawalCount)}</b></p>
+                  </div>
+                  {expectedMessage && expectedMessage !== (isDevFaucet ? DEV_FAUCET_MESSAGES[withdrawalCount] : WITHDRAWAL_MESSAGES[withdrawalCount]) && (
+                    <div className="expected-message">
+                      <p><strong>Contract expects:</strong> {isDevFaucet ? expectedMessage : expectedMessage.replace("  Also, Earth domain is best.", "")}</p>
+                        </div>
+                      )}
+                  {withdrawalCount === 0 && (
+                    <div className="server-info">
+                      <p>📡 First withdrawal uses server at {
+                        isLocalhost 
+                          ? (useLocalServer ? 'localhost:5000' : 'faucet.animechain.dev')
+                          : 'faucet.animechain.dev'
+                      }</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           
           {/* Admin Panel - only show for admin users on devFaucet */}
           {isAdmin && isDevFaucet && (
@@ -2054,7 +1998,11 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
                     onUpdateBaseDifficultyMultiplier={handleUpdateBaseDifficultyMultiplier}
                     onDirectWithdrawal={handleDirectWithdrawal}
                     onDebugBlockInfo={debugBlockInfo}
+                    onWithdrawAllFunds={handleWithdrawAllFunds}
                     loading={adminLoading}
+                    contract={contract}
+                    isDevFaucet={isDevFaucet}
+                    powComplete={powComplete}
                   />
                 </div>
               )}
@@ -2536,100 +2484,144 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         }
         @keyframes spin { from { transform: rotate(0deg);} to { transform: rotate(360deg);} }
         
-        .pow-mining-container {
-          background-color: #2d2d2d;
-          padding: 15px;
-          border-radius: 8px;
+        .phases-container {
           margin: 15px 0;
-          border: 2px solid #ff9800;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
         }
         
-        .pow-mining-section h4,
-        .pow-complete-section h4 {
-          margin: 0 0 15px 0;
-          color: #ff9800;
-          font-size: 16px;
+        .phase-line {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 12px;
+          flex-wrap: wrap;
+          width: 100%;
+          padding: 8px 0;
+          font-size: 14px;
+          border-bottom: 1px solid #333;
         }
         
-        .pow-start-button {
-          background-color: #ff9800;
+        .phase-line:last-child {
+          border-bottom: none;
+        }
+        
+        .phase-label {
+          color: #fff;
+          font-weight: 600;
+          margin-right: 4px;
+        }
+        
+        .phase-difficulty, .phase-tokens, .phase-amount {
+          color: #ddd;
+          font-size: 12px;
+          margin: 0 4px;
+          padding: 4px 10px;
+          background-color: rgba(255,255,255,0.06);
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 9999px;
+        }
+        
+        .phase-amount {
+          color: #34d399;
+          font-weight: 500;
+        }
+        
+        .phase-status {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+        }
+        
+        .phase-button {
+          background: linear-gradient(45deg, #4cd137, #2ed573);
           color: white;
-          padding: 12px 20px;
+          padding: 6px 12px;
           border: none;
-          border-radius: 6px;
+          border-radius: 9999px;
           cursor: pointer;
-          font-size: 16px;
-          width: 100%;
-          font-weight: bold;
-          transition: background-color 0.3s;
+          font-size: 12px;
+          font-weight: 700;
+          transition: transform 0.1s ease, box-shadow 0.2s ease;
+          box-shadow: 0 2px 6px rgba(46, 213, 115, 0.3);
         }
         
-        .pow-start-button:hover:not(:disabled) {
-          background-color: #f57c00;
+        .phase-button:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 4px 10px rgba(46, 213, 115, 0.4);
         }
         
-        .pow-start-button:disabled {
-          background-color: #666;
+        .phase-button:disabled {
+          background: #666;
           cursor: not-allowed;
+          box-shadow: none;
         }
         
-        .pow-mining-status {
-          text-align: center;
+        .phase-button.pow-ready {
+          background: linear-gradient(45deg, #4cd137, #2ed573);
+          animation: glow 2s ease-in-out infinite alternate;
+          box-shadow: 0 0 10px rgba(76, 209, 55, 0.5);
         }
         
-        .mining-spinner {
-          font-size: 24px;
-          animation: spin 2s linear infinite;
-          margin-bottom: 10px;
+        .phase-button.pow-ready:hover:not(:disabled) {
+          background: linear-gradient(45deg, #2ed573, #20bf6b);
+          box-shadow: 0 0 15px rgba(76, 209, 55, 0.7);
         }
         
-        @keyframes spin {
-          0% { transform: rotate(0deg); }
-          100% { transform: rotate(360deg); }
+        .phase-mining {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          font-size: 12px;
+          color: #ff9800;
         }
         
-        .pow-progress-bar {
-          width: 100%;
-          height: 12px;
+        .mini-progress {
+          width: 40px;
+          height: 3px;
           background-color: #444;
-          border-radius: 6px;
+          border-radius: 2px;
           overflow: hidden;
-          margin: 10px 0;
         }
         
-        .pow-progress-fill {
+        .mini-fill {
           height: 100%;
           background: linear-gradient(90deg, #ff9800, #ffc107);
-          border-radius: 6px;
+          border-radius: 2px;
           transition: width 0.3s ease;
         }
         
-        .mining-stats {
-          font-size: 12px;
-          color: #aaa;
-          margin-top: 10px;
-        }
-        
-        .pow-complete-section {
-          text-align: center;
-        }
-        
-        .pow-success-info {
-          background-color: #1e3a1e;
-          border: 1px solid #4cd137;
-          border-radius: 6px;
-          padding: 15px;
-          margin-top: 10px;
-        }
-        
-        .pow-success-info p {
-          margin: 5px 0;
-          font-size: 14px;
-          color: #ddd;
-        }
-        
-        .pow-success-info strong {
+        .phase-complete {
           color: #4cd137;
+          font-size: 12px;
+          font-weight: bold;
+        }
+        
+        .phase-toggle {
+          background: none;
+          border: none;
+          color: #6c5ce7;
+          cursor: pointer;
+          font-size: 12px;
+          padding: 2px 6px;
+          border-radius: 3px;
+          transition: background-color 0.3s;
+        }
+        
+        .phase-toggle:hover {
+          background-color: rgba(108, 92, 231, 0.1);
+        }
+        
+        .message-details {
+          background-color: rgba(255,255,255,0.04);
+          padding: 15px;
+          border-radius: 8px;
+          margin: 10px auto 0 auto;
+          border: none;
+          text-align: center;
+          max-width: 560px;
         }
         
         .action-button.pow-ready {
@@ -2694,74 +2686,6 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           margin-top: 15px;
         }
         
-        .admin-panel-content {
-          display: flex;
-          flex-direction: column;
-          gap: 20px;
-        }
-        
-        .admin-section {
-          background-color: #2d2d2d;
-          padding: 15px;
-          border-radius: 6px;
-          border-left: 3px solid #ff6b35;
-        }
-        
-        .admin-section h4 {
-          margin: 0 0 15px 0;
-          color: #ff6b35;
-          font-size: 16px;
-        }
-        
-        .admin-form {
-          width: 100%;
-        }
-        
-        .form-row {
-          display: flex;
-          gap: 10px;
-          align-items: center;
-          flex-wrap: wrap;
-        }
-        
-        .admin-select, .admin-input {
-          background-color: #3d3d3d;
-          color: white;
-          border: 1px solid #555;
-          border-radius: 4px;
-          padding: 8px 12px;
-          font-size: 14px;
-          flex: 1;
-          min-width: 120px;
-        }
-        
-        .admin-select:focus, .admin-input:focus {
-          outline: none;
-          border-color: #ff6b35;
-        }
-        
-        .admin-button {
-          background-color: #ff6b35;
-          color: white;
-          padding: 8px 16px;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 14px;
-          font-weight: bold;
-          white-space: nowrap;
-          transition: background-color 0.3s;
-        }
-        
-        .admin-button:hover:not(:disabled) {
-          background-color: #e55a30;
-        }
-        
-        .admin-button:disabled {
-          background-color: #666;
-          cursor: not-allowed;
-        }
-        
         .admin-error {
           color: #ff5252;
           margin-top: 15px;
@@ -2780,65 +2704,6 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           border-radius: 6px;
           border-left: 3px solid #4cd137;
           font-size: 14px;
-        }
-        
-        .multiplier-section {
-          background: linear-gradient(135deg, #2d2d2d 0%, #3d3d3d 100%);
-          border-left: 3px solid #00d4ff;
-        }
-        
-        .multiplier-subsection {
-          margin-bottom: 20px;
-          padding: 15px;
-          background-color: #3d3d3d;
-          border-radius: 6px;
-          border: 1px solid #555;
-        }
-        
-        .multiplier-subsection:last-child {
-          margin-bottom: 0;
-        }
-        
-        .multiplier-subsection h5 {
-          margin: 0 0 10px 0;
-          color: #00d4ff;
-          font-size: 14px;
-          font-weight: bold;
-        }
-        
-        .multiplier-info {
-          margin: 0 0 15px 0;
-          font-size: 12px;
-          color: #bbb;
-          font-style: italic;
-        }
-        
-        .multiplier-section h4 {
-          color: #00d4ff;
-          margin-bottom: 20px;
-        }
-        
-        .direct-withdrawal-button {
-          background: linear-gradient(45deg, #ff6b35, #ff8f65);
-          color: white;
-          font-weight: bold;
-          width: 100%;
-          padding: 12px 20px;
-          margin-top: 10px;
-          transition: all 0.3s;
-        }
-        
-        .direct-withdrawal-button:hover:not(:disabled) {
-          background: linear-gradient(45deg, #e55a30, #ff7050);
-          transform: translateY(-1px);
-          box-shadow: 0 4px 8px rgba(255, 107, 53, 0.3);
-        }
-        
-        .direct-withdrawal-button:disabled {
-          background: #666;
-          cursor: not-allowed;
-          transform: none;
-          box-shadow: none;
         }
         
         /* Single Signature UI Styles */
@@ -2897,18 +2762,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         }
         
         @media (max-width: 600px) {
-          .form-row {
-            flex-direction: column;
-            align-items: stretch;
-          }
           
-          .admin-select, .admin-input, .admin-button {
-            width: 100%;
-          }
-          
-          .multiplier-subsection {
-            margin-bottom: 15px;
-          }
         }
       `}</style>
       {/* Footer: faucet details only (refill moved to App-level footer component) */}
