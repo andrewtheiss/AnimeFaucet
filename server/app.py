@@ -38,13 +38,13 @@ NETWORK_CONFIG = {
     'animechain': {
         'rpc_url': 'https://rpc-animechain-39xf6m45e3.t.conduit.xyz/',
         'chain_id': 69000,
-        'faucet_address': '0x81AC57b126940a1F946Aed67e5C0F0351d607eAb',
-        'backend_address': '0x3aEF475d3FA57790DDEFe79dEBdC46f6A9A48c72'
+        'faucet_address': '0xa335F64c4d45da5DdF5931405E79E4Cc17644177',
+        'backend_address': '0x7dbc41d51513F99E99b44a8c9cd9E27362A2ab37'
     },
     'testnet': {
         'rpc_url': 'https://testnet-rpc.anime.xyz/',
         'chain_id': 6900,
-        'faucet_address': '0x8E5Da499f3F948652f6D2837eC049deE83Db4018',  # DevFaucet address - UPDATED
+        'faucet_address': '0xC960563D5aF77EBB142F25504960723cCD3D4598',  # DevFaucet address - UPDATED
         'backend_address': '0xba45c7E0acf0cB2Bc2091B2dd8e0900e07a75539', # DevFaucetServer address - to be updated  
         'block_explorer_url': 'https://explorer-animechain-testnet-i8yja6a1a0.t.conduit.xyz/',
         'faucet_type': 'dev'  # Indicates this uses the dev faucet (proof-of-work)
