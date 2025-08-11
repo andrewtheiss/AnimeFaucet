@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import './App.css'
 import Faucet from './components/Faucet'
+import RefillFooter from './components/RefillFooter'
 import { NETWORKS } from './constants/contracts'
 
 // Contract addresses for different networks - updated for devFaucet
 const CONTRACTS = {
-  animechain: "0x81AC57b126940a1F946Aed67e5C0F0351d607eAb", // Production Faucet on AnimeChain mainnet (from animechain.dev)
-  animechain_testnet: "0x8E5Da499f3F948652f6D2837eC049deE83Db4018", // DevFaucet on AnimeChain testnet (proof-of-work) - CORRECT ADDRESS
+  animechain: "0xa335F64c4d45da5DdF5931405E79E4Cc17644177", // Production Faucet on AnimeChain mainnet (from animechain.dev)
+  animechain_testnet: "0xC960563D5aF77EBB142F25504960723cCD3D4598", // DevFaucet on AnimeChain testnet (proof-of-work) - CORRECT ADDRESS
 };
 
 function App() {
@@ -106,18 +107,9 @@ function App() {
         onConnectionUpdate={updateConnectionStatus}
       />
       {!isConnected ? (
-        <p className="read-the-docs">
-          Connect your wallet to request {getTokenSymbol()} tokens
-        </p>
+        <p className="read-the-docs">Connect your wallet to request {getTokenSymbol()} tokens</p>
       ) : (
-        <div className="refill-footer">
-          <button 
-            onClick={() => document.querySelector('.refill-toggle-button')?.click()} 
-            className="footer-refill-button"
-          >
-            🔄 Refill Faucet
-          </button>
-        </div>
+        <RefillFooter contractAddress={contractAddress} network={network} />
       )}
     </>
   )
