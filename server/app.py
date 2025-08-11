@@ -138,6 +138,11 @@ def request_withdrawal():
         
         logging.info(f"Processing request for network: {network}")
         
+        # Normalize network aliases before validation
+        if network == 'animechain_testnet':
+            logging.info("Normalizing network alias 'animechain_testnet' -> 'testnet'")
+            network = 'testnet'
+
         # Validate network before using it
         if network not in NETWORK_CONFIG:
             logging.error(f"Invalid network requested: {network}")

@@ -690,12 +690,12 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         const serverUrl = isLocalhost 
           ? (useLocalServer ? 'http://localhost:5000' : 'https://faucet.animechain.dev')
           : 'https://faucet.animechain.dev';
-        const serverNetwork = getServerNetwork(network);
-        console.log(`Using server at ${serverUrl} for first withdrawal on network ${serverNetwork}`);
+        const serverNetworkPrimary = getServerNetwork(network);
+        const serverNetworkFallback = (serverNetworkPrimary === 'testnet' && network === 'animechain_testnet') ? 'animechain_testnet' : null;
+        console.log(`Using server at ${serverUrl} for first withdrawal on network ${serverNetworkPrimary}`);
         
         // Log the request data for debugging
-        const requestData = {
-          network: serverNetwork,
+        const requestDataBase = {
           user_address: (await provider.getSigner().then(s => s.getAddress())),
           chosen_block_hash: powData?.chosenBlockHash || '0x0000000000000000000000000000000000000000000000000000000000000000',
           withdrawal_index: powData?.withdrawalIndex || 1,
@@ -708,46 +708,60 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           r: sig?.r || (() => { throw new Error('DevFaucet signature is required for server authorization'); })(),
           s: sig?.s || (() => { throw new Error('DevFaucet signature is required for server authorization'); })()
         };
-        
+        const buildRequestData = (net) => ({ network: net, ...requestDataBase });
+
         console.log("🚨 CRITICAL DEBUG - SERVER REQUEST DATA:");
-        console.log("  requestData.nonce (anti-replay, should be 0):", requestData.nonce);
-        console.log("  requestData.pow_nonce (PoW mining, should be 9000):", requestData.pow_nonce);
+        console.log("  requestData.nonce (anti-replay, should be 0):", requestDataBase.nonce);
+        console.log("  requestData.pow_nonce (PoW mining, should be 9000):", requestDataBase.pow_nonce);
         console.log("  currentNonce variable:", currentNonce.toString());
         console.log("  powData.nonce variable:", powData?.nonce);
         
-        console.log("Server request data:", requestData);
-        console.log("Sending network name to server:", serverNetwork);
+        console.log("Sending network name to server:", serverNetworkPrimary);
         
         try {
           setServerLoading(true);
-          const response = await fetch(`${serverUrl}/request-withdrawal`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestData)
-          });
-          
+          const tryOnce = async (net) => {
+            const resp = await fetch(`${serverUrl}/request-withdrawal`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(buildRequestData(net))
+            });
+            return resp;
+          };
+
+          let response = await tryOnce(serverNetworkPrimary);
+
+          // If invalid network and we have a fallback alias, retry once
+          if (!response.ok && serverNetworkFallback) {
+            let errorDataTmp = {};
+            try { errorDataTmp = await response.json(); } catch {}
+            if (errorDataTmp.error && errorDataTmp.error.toLowerCase().includes('invalid network')) {
+              console.warn(`Retrying with fallback network alias: ${serverNetworkFallback}`);
+              response = await tryOnce(serverNetworkFallback);
+            }
+          }
+
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Unknown server error' }));
-            
+
             // Special handling for network not available error
             if (errorData.error && errorData.error.includes('Network') && errorData.error.includes('not available')) {
               console.error("Network not available error:", errorData);
-              console.log("Tried network name:", serverNetwork);
+              const attempted = serverNetworkFallback ? `${serverNetworkPrimary}, ${serverNetworkFallback}` : serverNetworkPrimary;
+              console.log("Tried network name(s):", attempted);
               console.log("Available networks might be: animechain, testnet, animechain_testnet");
-              throw new Error(`Network "${serverNetwork}" not available on server. Check server logs for available networks.`);
+              throw new Error(`Network not available on server. Tried: ${attempted}. Check server logs for available networks.`);
             }
-            
+
             // Special handling for server funds error
             if (errorData.error && errorData.error.includes('Server has insufficient funds')) {
               console.error("Server insufficient funds:", errorData);
               throw new Error('The server does not have enough ETH to pay for gas. Please contact the administrator.');
             }
-            
+
             throw new Error(errorData.error || `Server returned status ${response.status}`);
           }
-          
+
           const result = await response.json();
           if (result.error) {
             throw new Error(result.error);
