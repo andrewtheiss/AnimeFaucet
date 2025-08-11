@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ethers } from 'ethers';
-import { DEV_FAUCET_ABI, FAUCET_ABI, NETWORKS } from '../constants/contracts';
+import { DEV_FAUCET_ABI, NETWORKS } from '../constants/contracts';
 
 function RefillFooter({ contractAddress, network }) {
   const [showRefill, setShowRefill] = useState(false);
@@ -43,7 +43,7 @@ function RefillFooter({ contractAddress, network }) {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       const isDev = network === 'animechain_testnet';
-      const abi = isDev ? DEV_FAUCET_ABI : FAUCET_ABI;
+      const abi = DEV_FAUCET_ABI;
       const contract = new ethers.Contract(contractAddress, abi, signer);
 
       const valueWei = ethers.parseEther(String(amount));

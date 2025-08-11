@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
-import { FAUCET_ABI, DEV_FAUCET_ABI, FAUCET_SERVER_ABI, DEV_FAUCET_SERVER_ABI, NETWORKS, WITHDRAWAL_MESSAGES, DEV_FAUCET_MESSAGES } from '../constants/contracts';
+import { DEV_FAUCET_ABI, NETWORKS, DEV_FAUCET_MESSAGES } from '../constants/contracts';
 import animecoinIcon from '../assets/animecoin.png';
 import animeBackground from '../assets/anime.webp';
 import AdminPanel from './AdminPanel';
@@ -73,14 +73,15 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
   const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
   const networkConfig = NETWORKS[network] || NETWORKS.animechain;
-  const isDevFaucet = network === 'animechain_testnet'; // Use devFaucet on AnimeChain testnet
+  // Dev faucet is now the only faucet implementation (mainnet and testnet)
+  const isDevFaucet = network === 'animechain' || network === 'animechain_testnet';
   
-  // Select contract ABI - DevFaucet now uses single signature by default!
-  const contractABI = isDevFaucet ? DEV_FAUCET_ABI : FAUCET_ABI;
+  // Select contract ABI - always DevFaucet
+  const contractABI = DEV_FAUCET_ABI;
   const explorerUrl = `${networkConfig.blockExplorerUrls[0]}address/${account}`;
   
-  // Get max withdrawals based on faucet type
-  const maxWithdrawals = isDevFaucet ? 8 : 3;
+  // Dev faucet supports 8 progressive withdrawals
+  const maxWithdrawals = 8;
   
   // Server network mapping for localhost server
   const getServerNetwork = (uiNetwork) => {
@@ -239,14 +240,9 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     if (!contractToUse) return;
     try {
       console.log("Updating faucet information...");
-      // Fetch faucet balance based on faucet type
-      if (isDevFaucet) {
-        const balWei = await provider.getBalance(contractAddress);
-        setBalance(ethers.formatEther(balWei));
-      } else {
-        const balWei = await contractToUse.get_balance();
-        setBalance(ethers.formatEther(balWei));
-      }
+      // DevFaucet: Use provider to get contract's native balance
+      const balWei = await provider.getBalance(contractAddress);
+      setBalance(ethers.formatEther(balWei));
       
       // Update user balance
       if (accountToUse && provider) {
@@ -261,82 +257,53 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         console.warn('Could not read last_global_withdrawal:', e);
       }
       
-      // For DevFaucet, also fetch on-chain cooldown period so UI matches contract config
-      if (isDevFaucet) {
-        try {
-          const onChainCooldown = await contractToUse.cooldown_period();
-          setCooldownPeriodSeconds(Number(onChainCooldown));
-        } catch (e) {
-          // ignore if method unavailable
-        }
+      // Fetch on-chain cooldown period so UI matches contract config
+      try {
+        const onChainCooldown = await contractToUse.cooldown_period();
+        setCooldownPeriodSeconds(Number(onChainCooldown));
+      } catch (e) {
+        // ignore if method unavailable
       }
       
       // Recompute cooldown locally from latest values
       const calculatedCooldown = calculateCooldown();
       setCooldown(calculatedCooldown);
       
-      // Get the last recipient if we're checking cooldown (only for regular faucet)
-      if (!isDevFaucet) {
-        try {
-          const recipient = await contractToUse.last_recipient();
-          setLastRecipient(recipient);
-        } catch (recipientErr) {
-          console.error("Error getting last recipient:", recipientErr);
-        }
-      } else {
-        setLastRecipient("");
-      }
+      // DevFaucet doesn't have last_recipient
+      setLastRecipient("");
       
       if (accountToUse) {
         console.log("Fetching data for account:", accountToUse);
-        if (isDevFaucet) {
-          const nonce = await contractToUse.nonce(accountToUse);
-          setNonce(nonce.toString());
-          console.log("Account nonce:", nonce.toString());
-          const count = await contractToUse.withdrawal_count(accountToUse);
-          // Compute effective count based on 24h reset window
-          let effectiveCount = Number(count);
+        const nonce = await contractToUse.nonce(accountToUse);
+        setNonce(nonce.toString());
+        console.log("Account nonce:", nonce.toString());
+        const count = await contractToUse.withdrawal_count(accountToUse);
+        // Compute effective count based on 24h reset window
+        let effectiveCount = Number(count);
+        try {
+          const firstTime = await contractToUse.first_request_time(accountToUse);
+          let chainTs = 0n;
           try {
-            const firstTime = await contractToUse.first_request_time(accountToUse);
-            let chainTs = 0n;
-            try {
-              const latestBlock = await provider.getBlock('latest');
-              chainTs = BigInt(latestBlock?.timestamp ?? Math.floor(Date.now() / 1000));
-            } catch {
-              chainTs = BigInt(Math.floor(Date.now() / 1000));
-            }
-            if (firstTime && chainTs >= BigInt(firstTime) + 86400n) {
-              effectiveCount = 0;
-            }
-          } catch {}
-          console.log("Account withdrawal count (effective):", effectiveCount);
-          setWithdrawalCount(effectiveCount);
-          try {
-            const withdrawalIndex = effectiveCount + 1;
-            const message = await contractToUse.get_expected_message(withdrawalIndex);
-            console.log("Expected message from contract (DevFaucet):", message);
-            setExpectedMessage(message);
-          } catch (msgErr) {
-            console.error("Error getting expected message (DevFaucet):", msgErr);
-            const fallbackMessage = DEV_FAUCET_MESSAGES[effectiveCount] || "";
-            setExpectedMessage(fallbackMessage);
+            const latestBlock = await provider.getBlock('latest');
+            chainTs = BigInt(latestBlock?.timestamp ?? Math.floor(Date.now() / 1000));
+          } catch {
+            chainTs = BigInt(Math.floor(Date.now() / 1000));
           }
-        } else {
-          const nonce = await contractToUse.get_nonce(accountToUse);
-          setNonce(nonce.toString());
-          console.log("Account nonce:", nonce.toString());
-          const count = await contractToUse.get_withdrawal_count(accountToUse);
-          console.log("Account withdrawal count:", Number(count));
-          setWithdrawalCount(Number(count));
-          try {
-            const message = await contractToUse.get_expected_message(accountToUse);
-            console.log("Expected message from contract:", message);
-            setExpectedMessage(message);
-          } catch (msgErr) {
-            console.error("Error getting expected message:", msgErr);
-            const fallbackMessage = WITHDRAWAL_MESSAGES[Number(count)] || "";
-            setExpectedMessage(fallbackMessage);
+          if (firstTime && chainTs >= BigInt(firstTime) + 86400n) {
+            effectiveCount = 0;
           }
+        } catch {}
+        console.log("Account withdrawal count (effective):", effectiveCount);
+        setWithdrawalCount(effectiveCount);
+        try {
+          const withdrawalIndex = effectiveCount + 1;
+          const message = await contractToUse.get_expected_message(withdrawalIndex);
+          console.log("Expected message from contract (DevFaucet):", message);
+          setExpectedMessage(message);
+        } catch (msgErr) {
+          console.error("Error getting expected message (DevFaucet):", msgErr);
+          const fallbackMessage = DEV_FAUCET_MESSAGES[effectiveCount] || "";
+          setExpectedMessage(fallbackMessage);
         }
         // Check admin status
         await checkAdminStatus(accountToUse, contractToUse);
@@ -366,90 +333,90 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     return () => clearInterval(timer);
   }, [contract]);
 
+  // Immediate fetch once contract is ready
+  useEffect(() => {
+    if (!contract) return;
+    updateBalanceAndUserInfo();
+  }, [contract]);
+
+  // Listen to on-chain Deposit/Withdrawal events to refresh balance promptly
+  useEffect(() => {
+    if (!contract) return;
+    const handleEvent = () => {
+      // Refresh balance and user info when faucet state changes
+      updateBalanceAndUserInfo();
+    };
+    try {
+      contract.on('Deposit', handleEvent);
+      contract.on('Withdrawal', handleEvent);
+    } catch {}
+    return () => {
+      try {
+        contract.off('Deposit', handleEvent);
+        contract.off('Withdrawal', handleEvent);
+      } catch {}
+    };
+  }, [contract]);
+
   // New method to update balance and user info without modifying cooldown
   const updateBalanceAndUserInfo = async () => {
     if (!contract) return;
     
     try {
-      let balance;
       let balanceWei;
-      if (isDevFaucet) {
-        // DevFaucet: Use provider to get contract's native balance
-        balanceWei = await provider.getBalance(contractAddress);
-        balance = balanceWei;
-      } else {
-        // Original Faucet: Use contract's get_balance function
-        balanceWei = await contract.get_balance();
-        balance = balanceWei;
-      }
+      // DevFaucet: Use provider to get contract's native balance
+      balanceWei = await provider.getBalance(contractAddress);
+      const balance = balanceWei;
       setBalance(ethers.formatEther(balance));
       
       if (account) {
        // console.log("Fetching data for account:", account);
-        if (isDevFaucet) {
-          // DevFaucet: Use mapping accessors and different parameter for message
-          const nonce = await contract.nonce(account);
-          setNonce(nonce.toString());
-          
-          const count = await contract.withdrawal_count(account);
-          // Compute effective count based on 24h reset window
-          let effectiveCount = Number(count);
+        // DevFaucet path only
+        const nonce = await contract.nonce(account);
+        setNonce(nonce.toString());
+        
+        const count = await contract.withdrawal_count(account);
+        // Compute effective count based on 24h reset window
+        let effectiveCount = Number(count);
+        try {
+          const firstTime = await contract.first_request_time(account);
+          let chainTs = 0n;
           try {
-            const firstTime = await contract.first_request_time(account);
-            let chainTs = 0n;
-            try {
-              const latestBlock = await provider.getBlock('latest');
-              chainTs = BigInt(latestBlock?.timestamp ?? Math.floor(Date.now() / 1000));
-            } catch {
-              chainTs = BigInt(Math.floor(Date.now() / 1000));
-            }
-            if (firstTime && chainTs >= BigInt(firstTime) + 86400n) {
-              effectiveCount = 0;
-            }
-          } catch {}
-          setWithdrawalCount(effectiveCount);
-          
-          // Check faucet has enough funds for the upcoming withdrawal before allowing mining
-          try {
-            const withdrawalIndex = effectiveCount + 1; // 1-based index
-            const amountWei = await contract.get_withdrawal_amount(withdrawalIndex);
-            setExpectedWithdrawalAmountWei(amountWei);
-            setExpectedWithdrawalAmount(ethers.formatEther(amountWei));
-            
-            const requiredWei = amountWei + DEV_GAS_RESERVE_WEI;
-            setHasSufficientFunds(balanceWei >= requiredWei);
-          } catch (amountErr) {
-            console.warn('Could not fetch expected withdrawal amount:', amountErr);
-            // Fallback: if we cannot determine, do not block mining
-            setHasSufficientFunds(true);
+            const latestBlock = await provider.getBlock('latest');
+            chainTs = BigInt(latestBlock?.timestamp ?? Math.floor(Date.now() / 1000));
+          } catch {
+            chainTs = BigInt(Math.floor(Date.now() / 1000));
           }
-          
-          try {
-            // DevFaucet uses withdrawal_index (1-based) instead of account for expected message
-            const withdrawalIndex = Number(count) + 1; // Convert 0-based count to 1-based index
-            const message = await contract.get_expected_message(withdrawalIndex);
-            setExpectedMessage(message);
-          } catch (msgErr) {
-            console.error("Error getting expected message:", msgErr);
-            const fallbackMessage = DEV_FAUCET_MESSAGES[Number(count)] || "";
-            setExpectedMessage(fallbackMessage);
+          if (firstTime && chainTs >= BigInt(firstTime) + 86400n) {
+            effectiveCount = 0;
           }
-        } else {
-          // Original Faucet: Use original function names
-          const nonce = await contract.get_nonce(account);
-          setNonce(nonce.toString());
+        } catch {}
+        setWithdrawalCount(effectiveCount);
+        
+        // Check faucet has enough funds for the upcoming withdrawal before allowing mining
+        try {
+          const withdrawalIndex = effectiveCount + 1; // 1-based index
+          const amountWei = await contract.get_withdrawal_amount(withdrawalIndex);
+          setExpectedWithdrawalAmountWei(amountWei);
+          setExpectedWithdrawalAmount(ethers.formatEther(amountWei));
           
-          const count = await contract.get_withdrawal_count(account);
-          setWithdrawalCount(Number(count));
-          
-          try {
-            const message = await contract.get_expected_message(account);
-            setExpectedMessage(message);
-          } catch (msgErr) {
-            console.error("Error getting expected message:", msgErr);
-            const fallbackMessage = WITHDRAWAL_MESSAGES[Number(count)] || "";
-            setExpectedMessage(fallbackMessage);
-          }
+          const requiredWei = amountWei + DEV_GAS_RESERVE_WEI;
+          setHasSufficientFunds(balanceWei >= requiredWei);
+        } catch (amountErr) {
+          console.warn('Could not fetch expected withdrawal amount:', amountErr);
+          // Fallback: if we cannot determine, do not block mining
+          setHasSufficientFunds(true);
+        }
+        
+        try {
+          // DevFaucet uses withdrawal_index (1-based)
+          const withdrawalIndex = Number(count) + 1; // Convert 0-based count to 1-based index
+          const message = await contract.get_expected_message(withdrawalIndex);
+          setExpectedMessage(message);
+        } catch (msgErr) {
+          console.error("Error getting expected message:", msgErr);
+          const fallbackMessage = DEV_FAUCET_MESSAGES[Number(count)] || "";
+          setExpectedMessage(fallbackMessage);
         }
       }
     } catch (err) {
@@ -483,18 +450,8 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         const calculatedCooldown = calculateCooldown();
         setCooldown(calculatedCooldown);
         
-        // Get the last recipient (only for regular faucet)
-        if (!isDevFaucet) {
-          try {
-            const recipient = await contract.last_recipient();
-            setLastRecipient(recipient);
-          } catch (recipientErr) {
-            console.error("Error getting last recipient:", recipientErr);
-          }
-        } else {
-          // DevFaucet doesn't have last_recipient, set to empty
-          setLastRecipient("");
-        }
+        // DevFaucet doesn't have last_recipient, set to empty
+        setLastRecipient("");
         
         setTimerInitialized(true);
       } catch (err) {
@@ -505,9 +462,9 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
     initializeCooldown().finally(() => setIsInitializing(false));
   }, [contract, timerInitialized]);
 
-  // Update cooldown every second locally (original faucet only) without fetching from blockchain
+  // Update cooldown every second locally (only if needed)
   useEffect(() => {
-    if (!timerInitialized || isDevFaucet) return;
+    if (!timerInitialized) return;
     const timer = setInterval(() => {
       setCooldown(prev => {
         const c = Number(prev);
@@ -515,38 +472,26 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [timerInitialized, isDevFaucet]);
+  }, [timerInitialized]);
 
   // After successful withdrawal, reset the cooldown timer
   const resetCooldownAfterWithdrawal = async () => {
     try {
       const lastWithdrawalTime = await contract.last_global_withdrawal();
       setLastWithdrawal(lastWithdrawalTime.toString());
-      // Use on-chain cooldown period when available (especially for DevFaucet)
+      // Use on-chain cooldown period when available
       let period = COOLDOWN_PERIOD;
-      if (isDevFaucet) {
-        try {
-          const onChainCooldown = await contract.cooldown_period();
-          period = Number(onChainCooldown);
-          setCooldownPeriodSeconds(period);
-        } catch (e) {
-          // ignore if method unavailable
-        }
+      try {
+        const onChainCooldown = await contract.cooldown_period();
+        period = Number(onChainCooldown);
+        setCooldownPeriodSeconds(period);
+      } catch (e) {
+        // ignore if method unavailable
       }
       setCooldown(String(period));
       
-      // Get the last recipient (only for regular faucet)
-      if (!isDevFaucet) {
-        try {
-          const recipient = await contract.last_recipient();
-          setLastRecipient(recipient);
-        } catch (recipientErr) {
-          console.error("Error getting last recipient:", recipientErr);
-        }
-      } else {
-        // DevFaucet doesn't have last_recipient, set to empty
-        setLastRecipient("");
-      }
+      // DevFaucet doesn't have last_recipient, set to empty
+      setLastRecipient("");
     } catch (err) {
       console.error("Error resetting cooldown:", err);
     }
@@ -561,17 +506,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
 
   // Create display messages that hide certain text for UI
   const getDisplayMessage = (index) => {
-    if (isDevFaucet) {
-      // Use devFaucet messages directly
-      return DEV_FAUCET_MESSAGES[index] || "";
-    }
-    
-    // For mainnet faucet, for the first message, hide the "Earth domain is best" part in the UI
-    if (index === 0) {
-      return "I'll use this ANIME coin to build something on ANIME chain.";
-    }
-    // For other messages, use the original text
-    return WITHDRAWAL_MESSAGES[index];
+    return DEV_FAUCET_MESSAGES[index] || "";
   };
 
   const handleWithdraw = async () => {
@@ -581,28 +516,20 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       setSuccessMessage(''); // Clear any previous success messages
       console.log("Starting withdrawal process...");
       
-      // Verify faucet has enough funds right before signing/submitting
+      // Verify faucet has enough funds right before signing/submitting (DevFaucet only)
       try {
-        if (isDevFaucet) {
-          const faucetBalWei = await provider.getBalance(contractAddress);
-          // Determine required amount for next withdrawal
-          const nextIndex = withdrawalCount + 1;
-          let amountWei = 0n;
-          try {
-            amountWei = await contract.get_withdrawal_amount(nextIndex);
-          } catch {
-            amountWei = expectedWithdrawalAmountWei || 0n;
-          }
-          const requiredWei = amountWei + DEV_GAS_RESERVE_WEI;
-          if (faucetBalWei < requiredWei) {
-            throw new Error('Faucet has insufficient funds for this withdrawal. Please try again later.');
-          }
-        } else {
-          const faucetBalWei = await contract.get_balance();
-          const amountWei = ethers.parseEther('0.1');
-          if (faucetBalWei < amountWei) {
-            throw new Error('Faucet has insufficient funds (0.1 required).');
-          }
+        const faucetBalWei = await provider.getBalance(contractAddress);
+        // Determine required amount for next withdrawal
+        const nextIndex = withdrawalCount + 1;
+        let amountWei = 0n;
+        try {
+          amountWei = await contract.get_withdrawal_amount(nextIndex);
+        } catch {
+          amountWei = expectedWithdrawalAmountWei || 0n;
+        }
+        const requiredWei = amountWei + DEV_GAS_RESERVE_WEI;
+        if (faucetBalWei < requiredWei) {
+          throw new Error('Faucet has insufficient funds for this withdrawal. Please try again later.');
         }
       } catch (precheckErr) {
         setError(precheckErr.message || 'Faucet balance check failed');
@@ -620,7 +547,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       
       // CRITICAL: Fetch fresh anti-replay nonce before signing
       console.log("Fetching current anti-replay nonce before signing...");
-      const currentNonce = isDevFaucet ? await contract.nonce(account) : nonce;
+      const currentNonce = await contract.nonce(account);
       console.log("🔍 NONCE DEBUG:");
       console.log("  Account:", account);
       console.log("  Contract address:", contractAddress);
@@ -632,48 +559,10 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       const signer = await provider.getSigner();
       const contractWithSigner = contract.connect(signer);
       
-      // For DevFaucet: Use SINGLE SIGNATURE (no EIP-712 signing needed)
-      // For Original Faucet: Use traditional EIP-712 signing
+      // DevFaucet: Use SINGLE SIGNATURE flow
       let sig = null;
       let messageToSign = null;
-      
-      if (!isDevFaucet) {
-        // Original Faucet: EIP-712 signing required
-        const domain = {
-          name: "DevFaucet",
-          version: "1",
-          chainId: parseInt(networkConfig.chainId, 16), // Convert hex chainId to decimal
-          verifyingContract: contractAddress
-        };
-        const types = {
-          FaucetRequest: [
-            { name: "recipient", type: "address" },
-            { name: "message", type: "string" },
-            { name: "nonce", type: "uint256" }
-          ]
-        };
-        
-        messageToSign = expectedMessage || WITHDRAWAL_MESSAGES[withdrawalCount];
-        
-        // Validate message exists
-        if (!messageToSign) {
-          throw new Error('No message available for signing. Please refresh and try again.');
-        }
-        
-        console.log("Message to sign (Original Faucet):", messageToSign);
-        
-        const message = {
-          recipient: account,
-          message: messageToSign,
-          nonce: Number(nonce)
-        };
-        
-        console.log("Signing EIP-712 data:", { domain, types, message });
-        
-        const signature = await signer.signTypedData(domain, types, message);
-        console.log("EIP-712 signature obtained:", signature);
-        sig = ethers.Signature.from(signature);
-      } else {
+      {
         // DevFaucet: For server withdrawals, still need user authorization via signature
         // The user signs to authorize the server to act on their behalf
         messageToSign = expectedMessage || DEV_FAUCET_MESSAGES[withdrawalCount];
@@ -784,11 +673,9 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         throw new Error('Please complete proof-of-work mining before requesting tokens.');
       }
 
-      // Decide server path:
-      // - Original faucet: ALWAYS use server so user signs only once (EIP-712), server pays gas
-      // - Dev faucet: use server only for first withdrawal if user lacks gas
-      let useServer = !isDevFaucet || withdrawalCount === 0;
-      if (isDevFaucet && withdrawalCount === 0) {
+      // Decide server path: use server only for first withdrawal if user lacks gas
+      let useServer = withdrawalCount === 0;
+      if (withdrawalCount === 0) {
         try {
           const userBalWei = await provider.getBalance(account);
           const thresholdWei = ethers.parseEther('0.001');
@@ -807,7 +694,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         console.log(`Using server at ${serverUrl} for first withdrawal on network ${serverNetwork}`);
         
         // Log the request data for debugging
-        const requestData = isDevFaucet ? {
+        const requestData = {
           network: serverNetwork,
           user_address: (await provider.getSigner().then(s => s.getAddress())),
           chosen_block_hash: powData?.chosenBlockHash || '0x0000000000000000000000000000000000000000000000000000000000000000',
@@ -820,13 +707,6 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           v: sig?.v || (() => { throw new Error('DevFaucet signature is required for server authorization'); })(),
           r: sig?.r || (() => { throw new Error('DevFaucet signature is required for server authorization'); })(),
           s: sig?.s || (() => { throw new Error('DevFaucet signature is required for server authorization'); })()
-        } : {
-          network: serverNetwork,
-          user_address: account,
-          v: sig.v,
-          r: sig.r,
-          s: sig.s,
-          message: messageToSign
         };
         
         console.log("🚨 CRITICAL DEBUG - SERVER REQUEST DATA:");
@@ -893,13 +773,11 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
           setServerLoading(false);
         }
         
-        // Reset PoW state after successful server withdrawal (DevFaucet only)
-        if (isDevFaucet) {
-          setPowComplete(false);
-          setPowData(null);
-          setPowProgress(0);
-        }
-      } else if (isDevFaucet) {
+        // Reset PoW state after successful server withdrawal
+        setPowComplete(false);
+        setPowData(null);
+        setPowProgress(0);
+      } else {
         // For subsequent DevFaucet withdrawals, use direct contract interaction
         console.log("Using PoW data for devFaucet withdrawal:", powData);
         
@@ -1012,22 +890,6 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         
         // Update user balance
         await updateUserBalance();
-      } else {
-        // For subsequent original faucet withdrawals, use direct contract interaction
-        console.log("Calling withdraw directly with signature and message...");
-        const tx = await contractWithSigner.withdraw(sig.v, sig.r, sig.s, messageToSign);
-        console.log("Transaction submitted:", tx.hash);
-        setLastTxHash(tx.hash);
-        const receipt = await tx.wait();
-        console.log("Transaction confirmed!", receipt?.hash || tx.hash);
-        await updateInfo(account, contract);
-        await updateBalanceAndUserInfo();
-        
-        // Reset cooldown after successful withdrawal
-        await resetCooldownAfterWithdrawal();
-        
-        // Update user balance
-        await updateUserBalance();
       }
       
       await updateBalanceAndUserInfo();
@@ -1095,16 +957,6 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
         // Calculate cooldown based on last withdrawal time
         const calculatedCooldown = calculateCooldown();
         setCooldown(calculatedCooldown);
-        
-        // Get the last recipient when refreshing cooldown (only for original faucet)
-        if (!isDevFaucet) {
-          try {
-            const recipient = await contract.last_recipient();
-            setLastRecipient(recipient);
-          } catch (recipientErr) {
-            console.error("Error getting last recipient:", recipientErr);
-          }
-        }
       }
     } catch (err) {
       console.error("Error updating cooldown:", err);
@@ -1560,7 +1412,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
       setAdminSuccess('');
 
       // Get current contract balance
-      const currentBalance = await contract.get_balance ? await contract.get_balance() : await provider.getBalance(contractAddress);
+      const currentBalance = await provider.getBalance(contractAddress);
       
       if (Number(currentBalance) === 0) {
         setAdminError('No funds to withdraw - contract balance is 0');
@@ -1956,7 +1808,7 @@ function Faucet({ contractAddress, network = 'animechain', onConnectionUpdate })
                   <div className="message-highlight">
                     <p><b>{getDisplayMessage(withdrawalCount)}</b></p>
                   </div>
-                  {expectedMessage && expectedMessage !== (isDevFaucet ? DEV_FAUCET_MESSAGES[withdrawalCount] : WITHDRAWAL_MESSAGES[withdrawalCount]) && (
+                  {expectedMessage && expectedMessage !== (DEV_FAUCET_MESSAGES[withdrawalCount]) && (
                     <div className="expected-message">
                       <p><strong>Contract expects:</strong> {isDevFaucet ? expectedMessage : expectedMessage.replace("  Also, Earth domain is best.", "")}</p>
                         </div>
